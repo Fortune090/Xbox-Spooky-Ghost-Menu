@@ -1,6 +1,6 @@
 ## **Spooky Ghost Menu - Now ported to Xbox and Xbox 360!**
 
-Many HCM cheats, features, and options ported to Xbox/360, including the Ghost Viewer and my Superbounce Viewer, with Harc's Monster/Dreadnought additions. All with just a modified xbe.
+Many HCM cheats, features, and options ported to Xbox/360, including the Ghost Viewer and my Superbounce Viewer, all with just a modified xbe.
 
 Download and open the patcher. Select the version you want, select output location, then place the xbe in the appropriate game folder on your Xbox/360.
   
