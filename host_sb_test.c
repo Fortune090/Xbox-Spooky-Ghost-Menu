@@ -2094,25 +2094,50 @@ int main(void)
 		printf("invincible vehicles: both vehicles flagged, the biped not; off: each back as it was\n");
 	}
 	{
-		/* 6e: Acrophobia (cheat_jetpack) - crouch: the velocity x -0.2, gravity's tick added back; crouch + A, looking
-		 * along +x at rest: thrust 9 u/s^2 for a tick (0.3 u/s at 30 tick) along +x, gravity's tick added back */
+		/* 6h.29: Acrophobia (cheat_jetpack) - the jump is the game's (A pressed on the ground, held through it: nothing); A
+		 * pressed in the air, then held: flying (looking along +x at rest: 9 u/s^2 for a tick, 0.3 u/s at 30 tick, gravity's
+		 * tick back); let go or land: it ends, and only a new press in the air flies again; crouch in the air: hover (x -0.2,
+		 * gravity back), crouch on the ground: nothing; crouch + a press in the air: flying; the menu and the free camera:
+		 * nothing; once a tick */
 		void host_set_acro(s32 on); void host_acro_tick(void); void host_set_p1(u16 b, u8 a);
-		u32 obj = OBJECT, otime = M32h(0x1000);
-		float vx, vz;
-		W32(0x1000, 0x4D000); memset(MEM + 0x4D000, 0, 16); MEM[0x4D002] = 30; W32(0x4D008, 100);   /* game time: 30 tick, tick 100 */
+		void host_set_menu_open(s32 open, s32 m); void host_set_free_cam(s32 on, s32 block);
+		u32 obj = OBJECT, otime = M32h(0x1000), tk = 100;
+		u8 oair = MEM[obj + 0x348];
+		W32(0x1000, 0x4D000); memset(MEM + 0x4D000, 0, 16); MEM[0x4D002] = 30;                     /* game time: 30 tick */
 		W32(obj + 0x14, 0xFFFFFFFFu);
-		WF(obj + 0x88, 5.f); WF(obj + 0x8C, 0.f); WF(obj + 0x90, -3.f);
-		WF(0x1820, 1.f); WF(0x1824, 0.f); WF(0x1828, 0.f);
-		host_set_acro(1); host_set_p1(0x0040, 0); host_acro_tick();
-		vx = RF(obj + 0x88); vz = RF(obj + 0x90);
-		assert(fabsf(vx - (-1.f)) < 1e-4f && fabsf(vz - (0.6f + 4.1712f / 30.f)) < 1e-4f);
-		W32(0x4D008, 101); WF(obj + 0x88, 0.f); WF(obj + 0x8C, 0.f); WF(obj + 0x90, 0.f);
-		host_set_p1(0x0040, 255); host_acro_tick();
-		assert(fabsf(RF(obj + 0x88) - 0.3f) < 1e-4f && fabsf(RF(obj + 0x90) - 4.1712f / 30.f) < 1e-4f);
-		W32(0x4D008, 101); WF(obj + 0x88, 0.f); host_acro_tick(); assert(RF(obj + 0x88) == 0.f);   /* once a tick */
-		W32(0x4D008, 102); host_set_p1(0, 255); WF(obj + 0x88, 2.f); host_acro_tick(); assert(RF(obj + 0x88) == 2.f);   /* no crouch: nothing */
-		host_set_acro(0); host_set_p1(0, 0); W32(0x1000, otime);
-		printf("acrophobia: crouch hovers (x -0.2, gravity back); crouch + A thrusts 9 u/s^2 along the view; once a tick\n");
+		WF(0x1820, 1.f); WF(0x1824, 0.f); WF(0x1828, 0.f);                                           /* looking along +x */
+		host_set_acro(1);
+		#define ZERO() (WF(obj + 0x88, 0.f), WF(obj + 0x8C, 0.f), WF(obj + 0x90, 0.f))
+		#define TICK(btn, a, air) (W32(0x4D008, ++tk), MEM[obj + 0x348] = (u8)(air), host_set_p1((btn), (a)), host_acro_tick())
+		#define STILL() (RF(obj + 0x88) == 0.f && RF(obj + 0x90) == 0.f)
+		#define FLEW() (fabsf(RF(obj + 0x88) - 0.3f) < 1e-4f && fabsf(RF(obj + 0x90) - 4.1712f / 30.f) < 1e-4f)
+		TICK(0, 0, 0);                                                                                 /* (A up, on the ground) */
+		ZERO(); TICK(0, 255, 0); assert(STILL());                                                      /* A on the ground: the game's jump */
+		ZERO(); TICK(0, 255, 1); assert(STILL());                                                      /* in the air, A still held: a normal jump */
+		ZERO(); TICK(0, 255, 1); assert(STILL());
+		ZERO(); TICK(0, 0, 1); assert(STILL());                                                        /* let go: falling */
+		ZERO(); TICK(0, 255, 1); assert(FLEW());                                                       /* pressed in the air: flying */
+		W32(0x4D008, tk); ZERO(); host_acro_tick(); assert(STILL());                                   /* once a tick */
+		ZERO(); TICK(0, 255, 1); assert(FLEW());                                                       /* held: flying on */
+		ZERO(); TICK(0, 0, 1); assert(STILL());                                                        /* let go: it ends */
+		ZERO(); TICK(0, 255, 1); assert(FLEW());                                                       /* pressed again: flying */
+		ZERO(); TICK(0, 255, 0); assert(STILL());                                                      /* landed */
+		ZERO(); TICK(0, 255, 1); assert(STILL());                                                      /* off the ground again, A still held: not flying */
+		WF(obj + 0x88, 5.f); WF(obj + 0x8C, 0.f); WF(obj + 0x90, -3.f); TICK(0x0040, 0, 1);           /* crouch in the air: hover */
+		assert(fabsf(RF(obj + 0x88) + 1.f) < 1e-4f && fabsf(RF(obj + 0x90) - (0.6f + 4.1712f / 30.f)) < 1e-4f);
+		WF(obj + 0x88, 5.f); WF(obj + 0x90, -3.f); TICK(0x0040, 0, 0); assert(RF(obj + 0x88) == 5.f && RF(obj + 0x90) == -3.f);   /* crouch on the ground: a crouch */
+		ZERO(); TICK(0x0040, 255, 1); assert(FLEW());                                                  /* crouch + a press in the air: flying */
+		ZERO(); TICK(0, 0, 1);
+		host_set_menu_open(1, 0); ZERO(); TICK(0, 255, 1); assert(STILL());                            /* the menu's A */
+		ZERO(); TICK(0, 0, 1); host_set_menu_open(0, 0);
+		host_set_free_cam(1, 1); ZERO(); TICK(0, 255, 1); assert(STILL());                             /* held by the free camera */
+		host_set_free_cam(0, 1); ZERO(); TICK(0, 0, 1); ZERO(); TICK(0, 255, 1); assert(FLEW());
+		#undef FLEW
+		#undef STILL
+		#undef TICK
+		#undef ZERO
+		host_set_acro(0); host_set_p1(0, 0); W32(0x1000, otime); MEM[obj + 0x348] = oair;
+		printf("acrophobia: the jump the game's; a press in the air then held flies (9 u/s^2 along the view, gravity back), let go or land ends it; crouch in the air hovers, on the ground a crouch; not in the menu or the free camera\n");
 	}
 	{
 		/* 6f: Bump Possession - a biped no player controls, 0.5 from you: on the 3rd tick of the touch, player_set_unit(you,
@@ -2438,6 +2463,164 @@ int main(void)
 		assert(logged("ground probe") == g0 && logged("seam census") == c0 && !strcmp(host_trace_last(), tr));
 		host_set_diag(1); host_clear_toast();
 		printf("development lines off (the consoles): launches, bounces, probes and the crash trace write nothing; the HUD as ever\n");
+	}
+	{
+		/* 6h.22 / 6h.24: Game Speed / Pause Game - the game's time globals, each frame before its time update. Always 30
+		 * ticks a second of 1/30 s; the speed sets how many run. A stale rate (a revert's, a 6h.23 checkpoint's 60 / 300
+		 * ticks) goes; a script's rate and blend are the game's own */
+		void host_set_speed(s32 tenths, s32 pause);
+		const u32 GO = 0x4D000;
+		u32 oopt = M32h(0x1D10), otick = M32h(TIME + 8), o0 = M32h(TIME), o18 = M32h(TIME + 0x18), o20 = M32h(TIME + 0x20);
+		float sp, spt;
+		int tps;
+		#define RATE() (memcpy(&sp, MEM + TIME + 0xC, 4), memcpy(&spt, MEM + TIME + 4, 4), tps = (int)(short)M16h(TIME + 2))
+		#define IS(T, S) (RATE(), tps == (T) && sp == (S) && spt == 1.f / (float)(T))
+		W32(0x1D10, GO); W32(GO + 8, 1); MEM[GO + 0xE] = 30; MEM[GO + 0xF] = 0;      /* a campaign game, 30 ticks a second */
+		MEM[TIME] = 1; MEM[TIME + 1] = 0; MEM[TIME + 2] = 30; MEM[TIME + 3] = 0; WF(TIME + 4, 1.f / 30.f); WF(TIME + 0xC, 1.f);
+		WF(TIME + 0x18, 0.f); WF(TIME + 0x20, 0.f);
+		frame(); assert(IS(30, 1.f));                                              /* 1.0, off: the game's own, untouched */
+		host_set_speed(5, 0); frame(); assert(IS(30, 0.5f));                      /* 0.5: 30 ticks a second still, half as many run */
+		assert(MEM[TIME] == 1 && MEM[TIME + 1] == 0);                             /* the flags beside the tick rate kept */
+		host_set_speed(1, 0); frame(); assert(IS(30, 0.1f));                      /* 0.1 */
+		host_set_speed(8, 0); frame(); assert(IS(30, 0.8f));                      /* 0.8 */
+		host_set_speed(5, 1); frame(); assert(IS(30, 0.f));                       /* paused */
+		frame(); frame(); assert(IS(30, 0.f));
+		host_set_speed(5, 0); frame(); assert(IS(30, 0.5f));                      /* unpaused: back to 0.5 */
+		WF(TIME + 0xC, 1.f); frame(); assert(IS(30, 0.5f));                       /* a level load's 1.0: ours again */
+		MEM[TIME + 2] = 60; WF(TIME + 4, 1.f / 60.f); frame(); assert(IS(30, 0.5f));   /* a 6h.23 checkpoint's 60 ticks: 30 again */
+		MEM[TIME + 2] = 44; MEM[TIME + 3] = 1; WF(TIME + 4, 1.f / 300.f); frame(); assert(IS(30, 0.5f));   /* its 300: 30 again */
+		host_set_speed(20, 0); frame(); assert(IS(30, 2.f));                      /* 2.0: two 1/30 s ticks a frame */
+		host_set_speed(50, 0); frame(); assert(IS(30, 5.f));                      /* 5.0 */
+		host_set_speed(0, 0); frame(); assert(IS(30, 0.f));                       /* 0.0: stopped */
+		host_set_speed(10, 0); frame(); assert(IS(30, 1.f));                      /* back to 1.0 */
+		MEM[TIME + 2] = 60; WF(TIME + 4, 1.f / 60.f); WF(TIME + 0xC, 0.5f);        /* a revert brings 6h.23's 0.5 back ... */
+		frame(); assert(IS(30, 1.f));                                              /* ... 30 ticks at 1.0 again */
+		MEM[TIME + 2] = 60; WF(TIME + 4, 1.f / 60.f); WF(TIME + 0xC, 0.5f); WF(TIME + 0x20, 0.5f);   /* a script's 0.5 */
+		frame(); assert(IS(60, 0.5f));                                             /* left: the game's own */
+		WF(TIME + 0x20, 0.f);
+		MEM[TIME + 2] = 30; WF(TIME + 4, 1.f / 30.f); WF(TIME + 0x18, 2.f); WF(TIME + 0xC, 0.7f);
+		frame(); RATE(); assert(sp == 0.7f);                                       /* a script's blend under way: left */
+		host_set_speed(5, 0); frame(); RATE(); assert(sp == 0.7f && tps == 30);    /* ... even with 0.5 asked for */
+		WF(TIME + 0x18, 0.f); frame(); assert(IS(30, 0.5f));                      /* blend over: 0.5 */
+		host_set_speed(1, 1); frame(); assert(IS(30, 0.f));                       /* paused at 0.1 */
+		W32(GO + 8, 3); frame(); assert(IS(30, 1.f));                             /* the game's main menu: the game's rate back */
+		frame(); assert(IS(30, 1.f));
+		W32(GO + 8, 2); frame(); assert(IS(30, 0.f));                             /* a multiplayer game: applies */
+		W32(GO + 8, 1);
+		host_set_speed(10, 0); frame(); assert(IS(30, 1.f));
+		MEM[TIME] = 0; host_set_speed(5, 0); frame(); assert(IS(30, 1.f));        /* no game time yet: nothing */
+		MEM[TIME] = 1; W32(0x1D10, 0); frame(); assert(IS(30, 1.f));              /* no game options: nothing */
+		host_set_speed(10, 0);
+		W32(0x1D10, oopt); W32(TIME + 8, otick); W32(TIME, o0); MEM[TIME + 2] = 30; MEM[TIME + 3] = 0;
+		WF(TIME + 0xC, 1.f); W32(TIME + 0x18, o18); W32(TIME + 0x20, o20);
+		frame();
+		#undef IS
+		#undef RATE
+		printf("game speed: 30 ticks of 1/30 s at every speed (0.1 .. 5.0, paused, stopped); a stale tick rate (6h.23's 60 / 300) put back to 30; a script's rate and blend left alone; nothing on the main menu or before a game\n");
+	}
+	{
+		/* 6h.25: smooth slow motion at 30 ticks - an object's node matrices snapshotted before a tick, drawn between the two
+		 * ticks by leftover_ticks, the real ones back after the draw; the camera's eye the same way; none of it at full
+		 * speed, paused, after a jump, two ticks on, or for another object */
+		void host_set_speed(s32 tenths, s32 pause); void ip_tick_before(void); void ip_draw_before(void); void ip_draw_after(void);
+		s32 host_ip_blended(void); s32 host_ip_snapped(void); u32 tp_camera(u32 cam, s32 user);
+		const u32 GO = 0x4D000, NODES = OBJECT + 0x500;
+		static unsigned char save[0x600], tsave[0x40], csave[0x40];
+		u32 oopt = M32h(0x1D10), b;
+		float v;
+		#define NPOS(n, i) (memcpy(&v, MEM + NODES + 0x34 * (n) + 0x28 + 4 * (i), 4), v)
+		#define SETPOS(n, x, y, z) (WF(NODES + 0x34 * (n) + 0x28, x), WF(NODES + 0x34 * (n) + 0x2C, y), WF(NODES + 0x34 * (n) + 0x30, z))
+		#define NEAR(a, b) ((a) - (b) < 1e-4f && (b) - (a) < 1e-4f)
+		memcpy(save, MEM + OBJECT, sizeof(save)); memcpy(tsave, MEM + TIME, sizeof(tsave)); memcpy(csave, MEM + 0x1800, sizeof(csave));
+		W32(0x1D10, GO); W32(GO + 8, 1); MEM[GO + 0xE] = 30; MEM[GO + 0xF] = 0;
+		MEM[TIME] = 1; MEM[TIME + 1] = 0; MEM[TIME + 2] = 30; MEM[TIME + 3] = 0; WF(TIME + 4, 1.f / 30.f); WF(TIME + 0x18, 0.f); WF(TIME + 0x20, 0.f);
+		WF(0x1800, 0.f); WF(0x1804, 0.f); WF(0x1808, 0.f);                          /* the camera at the origin */
+		MEM[OBJECT + 0x114] = 0x68; MEM[OBJECT + 0x115] = 0; MEM[OBJECT + 0x116] = 0x00; MEM[OBJECT + 0x117] = 0x05;   /* 2 nodes at +0x500 */
+		WF(OBJECT + 0x30, 1.f); WF(OBJECT + 0x34, 0.f); WF(OBJECT + 0x38, 0.f); WF(OBJECT + 0x3C, 1.f);   /* near the camera */
+		memset(MEM + NODES, 0, 0x68); WF(NODES, 1.f); WF(NODES + 0x34, 1.f); SETPOS(0, 1.f, 2.f, 3.f); SETPOS(1, 4.f, 5.f, 6.f);
+		W32(TIME + 8, 1000); WF(TIME + 0x10, 0.f);
+		host_set_speed(5, 0);
+		ip_tick_before(); assert(host_ip_snapped() >= 1);                        /* 0.5: snapshotted before the tick */
+		SETPOS(0, 1.6f, 2.f, 3.f); SETPOS(1, 4.6f, 5.f, 6.f); W32(TIME + 8, 1001); WF(TIME + 0x10, 0.25f);   /* the tick */
+		ip_draw_before(); assert(host_ip_blended() == 1 && NEAR(NPOS(0, 0), 1.15f) && NEAR(NPOS(1, 0), 4.15f) && NEAR(NPOS(0, 1), 2.f));
+		ip_draw_after(); assert(NPOS(0, 0) == 1.6f && NPOS(1, 0) == 4.6f && host_ip_blended() == 0);   /* the real ones back, exactly */
+		WF(TIME + 0x10, 0.75f); ip_draw_before(); assert(NEAR(NPOS(0, 0), 1.45f)); ip_draw_after(); assert(NPOS(0, 0) == 1.6f);
+		W32(TIME + 8, 1002); ip_draw_before(); assert(host_ip_blended() == 0 && NPOS(0, 0) == 1.6f); ip_draw_after();   /* two ticks on */
+		W32(TIME + 8, 1001);
+		host_set_speed(5, 1); ip_draw_before(); assert(host_ip_blended() == 0); ip_draw_after();                       /* paused */
+		host_set_speed(10, 0); ip_draw_before(); assert(host_ip_blended() == 0); ip_draw_after();                      /* 1.0 */
+		W32(TIME + 8, 1000); ip_tick_before(); assert(host_ip_snapped() == -1);                                        /* 1.0: no snapshot */
+		host_set_speed(5, 0); W32(TIME + 8, 1000); ip_tick_before();
+		SETPOS(0, 6.6f, 2.f, 3.f); W32(TIME + 8, 1001); ip_draw_before(); assert(host_ip_blended() == 0 && NPOS(0, 0) == 6.6f); ip_draw_after();   /* a 5-unit jump */
+		W32(TIME + 8, 1000); ip_tick_before(); W32(TIME + 8, 1001);
+		ip_draw_before(); assert(host_ip_blended() == 0); ip_draw_after();                                             /* still: nothing to blend */
+		W32(TIME + 8, 1000); ip_tick_before(); SETPOS(0, 7.f, 2.f, 3.f); W32(TIME + 8, 1001);
+		{ u32 hs = M32h(OBJ_DATA + 2 * 12); W32(OBJ_DATA + 2 * 12, (hs & 0xffff0000u) | 6); ip_draw_before(); assert(host_ip_blended() == 0); ip_draw_after(); W32(OBJ_DATA + 2 * 12, hs); }   /* another object there */
+		WF(OBJECT + 0x30, 200.f); W32(TIME + 8, 1000); ip_tick_before(); assert(host_ip_snapped() == 0); WF(OBJECT + 0x30, 1.f);   /* far: not taken */
+		/* 6h.26: the camera moves with its own unit's blend - the eye by what the unit's root node is moved by - in first
+		 * person and behind it in third; the first-person legs turned to the view's heading about the eye (slowed, on foot,
+		 * first person only) and put back after the first-person build */
+		{
+			const u32 REC = 0x6A000;
+			void host_set_third_person(s32 on, s32 dist, s32 height, s32 side); void host_set_free_cam(s32 on, s32 block);
+			void ip_fp_before(void); void ip_fp_after(void);
+			float x1, x2, fx, fy;
+			host_set_third_person(0, 10, 2, 0); host_set_free_cam(0, 1);       /* first person */
+			memset(MEM + REC, 0, 0x358); WF(REC + 0x20, 1.f); WF(REC + 0x34, 1.f);  /* looking along +x, up +z */
+			WF(OBJECT + 0x30, 1.f); MEM[OBJECT + 0x14] = 0xFF; MEM[OBJECT + 0x15] = 0xFF; MEM[OBJECT + 0x16] = 0xFF; MEM[OBJECT + 0x17] = 0xFF;   /* on foot */
+			WF(OBJECT + 0x70, 1.f); WF(OBJECT + 0x74, 0.f); WF(OBJECT + 0x78, 0.f);   /* facing +x */
+			host_set_speed(5, 0);
+			SETPOS(0, 1.f, 2.f, 3.f); SETPOS(1, 4.f, 5.f, 6.f); W32(TIME + 8, 3000); WF(TIME + 0x10, 0.f);
+			WF(NODES + 0x04, 1.f); WF(NODES + 0x08, 0.f); WF(NODES + 0x0C, 0.f);      /* node 0 faces +x */
+			WF(OBJECT + 0x64, 1.f); WF(OBJECT + 0x68, 0.f); WF(OBJECT + 0x6C, 0.f);   /* its origin */
+			ip_tick_before();
+			SETPOS(0, 1.6f, 2.07f, 3.f); SETPOS(1, 4.6f, 5.f, 6.f); W32(TIME + 8, 3001); WF(TIME + 0x10, 0.25f);   /* the pelvis bobs (y), the origin doesn't */
+			WF(OBJECT + 0x64, 1.6f);
+			WF(REC, 10.f); WF(REC + 4, 0.f); WF(REC + 8, 0.f);
+			ip_draw_before();
+			b = tp_camera(REC, 0); memcpy(&v, MEM + b, 4);
+			assert(b != REC && NEAR(v, 10.f - 0.45f));                           /* the eye moved as the root: (1.0 - 1.6) x 0.75 */
+			{ float r; memcpy(&r, MEM + REC, 4); assert(r == 10.f); }           /* the game's record untouched */
+			ip_draw_after();
+			b = tp_camera(REC, 0); assert(b == REC);                            /* outside the draw: as it is */
+			WF(TIME + 0x10, 0.75f); ip_draw_before(); b = tp_camera(REC, 0); memcpy(&v, MEM + b, 4); assert(NEAR(v, 10.f - 0.15f)); ip_draw_after();
+			/* the record moving within the tick (pitch, a shake) changes nothing: the offset is the root's */
+			WF(REC, 10.3f); ip_draw_before(); b = tp_camera(REC, 0); memcpy(&v, MEM + b, 4); assert(NEAR(v, 10.3f - 0.15f)); ip_draw_after();
+			/* third person: its camera from that eye, 1 unit behind it along the view */
+			host_set_third_person(1, 10, 2, 0);
+			MEM[OBJECT + 0xAA] = 0; MEM[OBJECT + 0x240] = 0xFF; MEM[OBJECT + 0x241] = 0xFF;
+			WF(REC, 1.6f);                                                      /* the eye at your origin (the game's, roughly) */
+			WF(TIME + 0x10, 0.25f); ip_draw_before(); b = tp_camera(REC, 0); memcpy(&x1, MEM + b, 4); ip_draw_after();
+			WF(TIME + 0x10, 0.75f); ip_draw_before(); b = tp_camera(REC, 0); memcpy(&x2, MEM + b, 4); ip_draw_after();
+			assert(NEAR(x1, 1.6f - 0.45f - 1.f) && NEAR(x2, 1.6f - 0.15f - 1.f));
+			W32(0x1D38, 0); WF(TIME + 0x10, 0.25f); ip_draw_before(); tp_camera(REC, 0); ip_fp_before(); assert(NEAR(NPOS(0, 0), 1.15f) && NEAR(NPOS(0, 1), 2.0175f)); ip_fp_after(); ip_draw_after();   /* third person: no turn */
+			host_set_third_person(0, 10, 2, 0); WF(REC, 10.f);
+			/* the legs: body facing +x, the view along +y - turned +90 degrees about the eye (10 - 0.45, 0), back after the build */
+			WF(REC + 0x20, 0.f); WF(REC + 0x24, 1.f); WF(REC + 0x28, 0.f); WF(REC + 0x2C, 0.f); WF(REC + 0x30, 0.f); WF(REC + 0x34, 1.f);
+			WF(TIME + 0x10, 0.25f); ip_draw_before(); tp_camera(REC, 0);
+			ip_fp_before();
+			memcpy(&fx, MEM + NODES + 0x04, 4); memcpy(&fy, MEM + NODES + 0x08, 4);
+			{
+				/* node 0 blended to (1.15, 2.0175, 3); about the eye (9.55, 0): (-8.4, 2.0175) turned +90 -> (-2.0175, -8.4) */
+				assert(NEAR(NPOS(0, 0), 9.55f - 2.0175f) && NEAR(NPOS(0, 1), -8.4f) && NPOS(0, 2) == 3.f);
+				assert(NEAR(fx, 0.f) && NEAR(fy, 1.f));                           /* its forward (+x) turned to +y */
+			}
+			ip_fp_after(); assert(NEAR(NPOS(0, 0), 1.15f) && NEAR(NPOS(0, 1), 2.0175f));   /* back: the blended pose */
+			ip_draw_after(); assert(NPOS(0, 0) == 1.6f && NPOS(0, 1) == 2.07f);   /* and the real one */
+			/* looking straight down (forward -z, up along +y): the heading from up - the same turn */
+			WF(REC + 0x20, 0.f); WF(REC + 0x24, 0.f); WF(REC + 0x28, -1.f); WF(REC + 0x2C, 0.f); WF(REC + 0x30, 1.f); WF(REC + 0x34, 0.f);
+			ip_draw_before(); tp_camera(REC, 0); ip_fp_before(); memcpy(&fy, MEM + NODES + 0x08, 4); assert(NEAR(fy, 1.f)); ip_fp_after(); ip_draw_after();
+			/* full speed: no turn */
+			host_set_speed(10, 0); ip_draw_before(); tp_camera(REC, 0); ip_fp_before(); assert(NPOS(0, 0) == 1.6f && NPOS(0, 1) == 2.07f); ip_fp_after(); ip_draw_after();
+			host_set_speed(5, 0);
+		}
+		memcpy(MEM + OBJECT, save, sizeof(save)); memcpy(MEM + TIME, tsave, sizeof(tsave)); memcpy(MEM + 0x1800, csave, sizeof(csave));
+		W32(0x1D10, oopt);
+		frame();
+		#undef NEAR
+		#undef SETPOS
+		#undef NPOS
+		printf("smooth slow motion: node matrices drawn between the two ticks (0.25 -> 1.15, 0.75 -> 1.45) and put back exactly; none at 1.0, paused, after a 5-unit jump, two ticks on, for another object, still or far; the eye moved as its unit's root (first and third person), the first-person legs turned to the view (any pitch) and put back\n");
 	}
 	printf("ALL SUPERBOUNCE CHECKS PASSED\n");
 	return 0;

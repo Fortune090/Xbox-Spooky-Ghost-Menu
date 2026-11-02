@@ -105,3 +105,5 @@
 #define ADDR_DEATH_REVERT 0x138E40  /* the once-a-tick revert after you die (sets revert_map) */
 #define ADDR_CAM_TARGET 0x1871E0    /* the following camera's target (eax player, esi record) */
 #define ADDR_CAM_MARKER 0xB9EF0    /* its marker step (eax datum, ecx place) */
+#define ADDR_GAME_TICK 0x137FE0    /* 6h.25: one game tick (game_loop_tick), void(void) */
+#define ADDR_FRAME_DRAW 0x223240    /* 6h.25: the frame's draw (views, menus, vblank, present), void(void) */

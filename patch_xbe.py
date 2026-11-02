@@ -32,7 +32,13 @@ VERSIONS = {
                         # 6h.11: a possessed vehicle in third person
                         (0x15596b, 0x155810, 'hcam_mode_hook'), (0x155abc, 0x155810, 'hcam_mode_hook'), (0x1557d1, 0x155810, 'hcam_mode_hook'),
                         # 6h.12: Checkpoint Settings; the possessed vehicle's driving view
-                        (0x22613d, 0x12b790, 'hsave_hook'), (0x226090, 0x12b790, 'hsave_hook'), (0x138082, 0x138e40, 'hrevert_hook'), (0x18755b, 0x1871e0, 'htarget_hook'), (0x23cbc0, 0x1871e0, 'htarget_hook'), (0x23d7a0, 0x1871e0, 'htarget_hook'))),
+                        (0x22613d, 0x12b790, 'hsave_hook'), (0x226090, 0x12b790, 'hsave_hook'), (0x138082, 0x138e40, 'hrevert_hook'), (0x18755b, 0x1871e0, 'htarget_hook'),
+                        # 6h.23: a moved view (third person / free camera) - the effect draw pass's first-person marker; the object
+                        # attachments' first-person tests (draw-time visibility, instances made, their markers' mode)
+                        (0x31d6a, 0x16640f, 'fpm_hook'), (0x17430c, 0x155760, 'persp_hook'), (0x178f06, 0x155760, 'persp_hook'),
+                        (0x179071, 0x155760, 'persp_hook'), (0x179942, 0x155760, 'persp_hook'),
+                        # 6h.25: smooth slow motion - a snapshot before each tick, a blend around the draw
+                        (0x137f89, 0x137fe0, 'ip_tick_hook'), (0x12b659, 0x223240, 'ip_draw_hook'), (0x23cbc0, 0x1871e0, 'htarget_hook'), (0x23d7a0, 0x1871e0, 'htarget_hook'))),
     'v1.5': dict(timestamp=0x4600A62B, va=0x596000, title=None, bytes=((0xcc619, '0f8534010000', '909090909090'), (0xc8d1f, '7546', '9090'), (0x20ba17, '7510', '9090'), (0x102a52, '751d', '9090'), (0x1eb184, '751e', '9090'), (0xcbd49, '750a', '9090'), (0xd8383, '751c', '9090'), (0xdbcbe, '7537', '9090'), (0x1b70dd, '750a', '9090'), (0x1b732a, '750a', '9090'), (0x1b736f, '7517', '9090'), (0x1eb009, '7509', '9090'), (0x205cd3, '7552', '9090'), (0x26695b, '7511', '9090'), (0xdbe71, '7517', '9090'), (0x13bebc, '0f95c0', 'b00090'), (0x168e03, '0f95c0', 'b00090'),),
                  calls=((0x2c84e, 0x13f260, 'hud_hook'), (0x127744, 0x413c4c, 'input_hook'),
                         (0x2b6d7, 0x13cb0, 'end_a_hook'), (0x2c9c9, 0x13cb0, 'end_b_hook'),
@@ -48,7 +54,12 @@ VERSIONS = {
                         # 6h.11: a possessed vehicle in third person
                         (0x15849b, 0x158340, 'hcam_mode_hook'), (0x1585ec, 0x158340, 'hcam_mode_hook'), (0x158301, 0x158340, 'hcam_mode_hook'),
                         # 6h.12: Checkpoint Settings; the possessed vehicle's driving view
-                        (0x22cb3d, 0x12e2a0, 'hsave_hook'), (0x22ca90, 0x12e2a0, 'hsave_hook'), (0x13ab62, 0x13b920, 'hrevert_hook'), (0x18a34b, 0x189fd0, 'htarget_hook'), (0x245eb0, 0x189fd0, 'htarget_hook'), (0x246a90, 0x189fd0, 'htarget_hook'))),
+                        (0x22cb3d, 0x12e2a0, 'hsave_hook'), (0x22ca90, 0x12e2a0, 'hsave_hook'), (0x13ab62, 0x13b920, 'hrevert_hook'), (0x18a34b, 0x189fd0, 'htarget_hook'),
+                        # 6h.23: as v1.0's
+                        (0x31d5a, 0x1692e0, 'fpm_hook'), (0x1771ac, 0x158290, 'persp_hook'), (0x17bd96, 0x158290, 'persp_hook'),
+                        (0x17bf01, 0x158290, 'persp_hook'), (0x17c7d2, 0x158290, 'persp_hook'),
+                        # 6h.25: as v1.0's
+                        (0x13aa69, 0x13aac0, 'ip_tick_hook'), (0x12e169, 0x229c50, 'ip_draw_hook'), (0x245eb0, 0x189fd0, 'htarget_hook'), (0x246a90, 0x189fd0, 'htarget_hook'))),
 }
 NEW_NAME = b'.spooky\0'
 FILLER = bytes.fromhex('8d9b00000000')          # lea ebx,[ebx+0]: does nothing

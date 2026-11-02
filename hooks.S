@@ -119,10 +119,17 @@ hudd_hook:
 1:	ret
 	.globl	tp_fp_hook
 tp_fp_hook:
+	pushal				/* 6h.26: the first-person legs turned to the view's heading (slowed), for this build */
+	pushfl
+	cld
+	call	ip_fp_before
+	popfl
+	popal
 	call	orig_fp_setup
 	pushal
 	pushfl
 	cld
+	call	ip_fp_after		/* 6h.26: ... and put back */
 	call	tp_fp_after
 	popfl
 	popal
@@ -193,8 +200,9 @@ fpm_hook:
 	jmp	orig_fp_marker
 
 /* ---- third person, as Cartographer (step 4h.3): the director's perspective (function_155760, eax = the player, the
- * answer in eax) reported as "following" (3) to the render code, the first-person weapon code and the camera effect
- * code for a player seen in third person (persp_answer); -1: the game's own answer ---- */
+ * answer in eax) reported as "following" (3) to the render code, the first-person weapon code, the camera effect
+ * code and (6h.23) the object attachments' first-person tests for a player seen in third person (persp_answer); -1: the
+ * game's own answer ---- */
 	.globl	persp_hook
 persp_hook:
 	pushfl
@@ -568,4 +576,34 @@ cam_marker_call:
 	popl	%edi
 	popl	%esi
 	popl	%ebx
+	ret
+
+/* ---- 6h.25: smooth slow motion at 30 ticks - frame interpolation. The tick loop's call to one tick (v1.0 0x137f89 ->
+ * 0x137fe0, void(void)): the objects' node matrices snapshotted first (when slowed); the frame's call to the draw
+ * (v1.0 0x12b659 -> 0x223240, void(void)): blended before it, put back after it ---- */
+	.globl	ip_tick_hook
+ip_tick_hook:
+	pushfl
+	pushal
+	cld
+	call	ip_tick_before
+	popal
+	popfl
+	jmp	orig_game_tick
+
+	.globl	ip_draw_hook
+ip_draw_hook:
+	pushfl
+	pushal
+	cld
+	call	ip_draw_before
+	popal
+	popfl
+	call	orig_frame_draw
+	pushfl
+	pushal
+	cld
+	call	ip_draw_after
+	popal
+	popfl
 	ret

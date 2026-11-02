@@ -97,7 +97,8 @@ int main(int argc, char **argv)
 	/* Back + Up opens; the game sees a neutral pad from that read on */
 	press(0x20 | 0x01, 0, 0); frame();
 	assert(host_menu_open() && game_neutral());
-	assert(g_frame_lines == 14 && strstr(g_last[0], "Spooky Ghost Menu - by Fortune090") && strstr(g_last[1], "> Cheats  >") && strstr(g_last[2], "Checkpoint Settings  >") && strstr(g_last[3], "Launch / Teleport") && strstr(g_last[6], "Ghost Viewer: off") && strstr(g_last[7], "Ghost Viewer Settings") && strstr(g_last[8], "Camera Settings  >") && strstr(g_last[9], "Timers  >") && strstr(g_last[10], "Text scale") && strstr(g_last[11], "Passion Check") && strstr(g_last[12], "Close menu"));   /* 6h.15 */
+	assert(g_frame_lines == 14 && strstr(g_last[0], "Spooky Ghost Menu - by Fortune090") && strstr(g_last[1], "> Cheats  >") && strstr(g_last[2], "Game Speed: 1.0") && strstr(g_last[3], "Pause Game: off") && strstr(g_last[4], "Checkpoint Settings  >") && strstr(g_last[5], "Launch / Teleport") && strstr(g_last[8], "Ghost Viewer: off") && strstr(g_last[9], "Ghost Viewer Settings") && strstr(g_last[10], "Camera Settings  >") && strstr(g_last[11], "Timers  >") && strstr(g_last[12], "Text scale: 1.0"));   /* 6h.22 */
+	{ int z; for (z = 0; z < g_frame_lines; z++) assert(!strstr(g_last[z], "Passion Check") && !strstr(g_last[z], "Close menu")); }   /* 6h.22: to Cheats; gone */
 	assert(g_last_color[1].b < 0.5f && g_last_color[2].b > 0.5f);   /* the selected line is yellow, the others grey */
 	assert(!memcmp(host_draw_string_globals, marker, sizeof(marker)));
 	printf("open: 14 lines (title, 12 items, footer), selected line highlighted, game sees a neutral pad\n");
@@ -113,26 +114,26 @@ int main(int argc, char **argv)
 	assert(host_menu_selected() == 11);
 	printf("navigation: down moves, up wraps from the top to the bottom\n");
 
-	/* 4. A toggles "Superbounce Viewer" (item 3): select it, press A */
-	while (host_menu_selected() != 3) { press(0x02, 0, 0); frame(); release(); frame(); }
-	assert(host_value(3) == 0);                                        /* off by default */
-	press(0, 255, 0); frame(); assert(host_value(3) == 1 && game_neutral());
-	frame(); frame(); assert(host_value(3) == 1);                    /* holding A doesn't toggle again */
+	/* 4. A toggles "Superbounce Viewer" (item 5): select it, press A */
+	while (host_menu_selected() != 5) { press(0x02, 0, 0); frame(); release(); frame(); }
+	assert(host_value(5) == 0);                                        /* off by default */
+	press(0, 255, 0); frame(); assert(host_value(5) == 1 && game_neutral());
+	frame(); frame(); assert(host_value(5) == 1);                    /* holding A doesn't toggle again */
 	release(); frame();
 	printf("A toggles once per press; the game never sees A\n");
 
 	/* 5. Text scale: holding right repeats after 12 reads, then every 3, and stops at the top (14) */
-	while (host_menu_selected() != 9) { press(0x02, 0, 0); frame(); release(); frame(); }
-	assert(host_menu_selected() == 9 && host_value(9) == 10);
-	press(0x08, 0, 0); frame(); assert(host_value(9) == 11);
+	while (host_menu_selected() != 11) { press(0x02, 0, 0); frame(); release(); frame(); }
+	assert(host_menu_selected() == 11 && host_value(11) == 10);
+	press(0x08, 0, 0); frame(); assert(host_value(11) == 11);
 	for (i = 0; i < 11; i++) frame();
-	assert(host_value(9) == 11);
-	frame(); assert(host_value(9) == 12);
-	frame(); frame(); assert(host_value(9) == 12); frame(); assert(host_value(9) == 13);
+	assert(host_value(11) == 11);
+	frame(); assert(host_value(11) == 12);
+	frame(); frame(); assert(host_value(11) == 12); frame(); assert(host_value(11) == 13);
 	for (i = 0; i < 30; i++) frame();
-	assert(host_value(9) == 14);
+	assert(host_value(11) == 14);
 	release(); frame();
-	press(0x04, 0, 0); frame(); release(); frame(); assert(host_value(9) == 13);
+	press(0x04, 0, 0); frame(); release(); frame(); assert(host_value(11) == 13);
 	printf("right/left change values with Blam-style auto-repeat and stop at the limits\n");
 
 	/* 6. B closes; the game stays neutral until everything is released */
@@ -157,18 +158,24 @@ int main(int argc, char **argv)
 	printf("B closes, input stays blocked until every button is released, then passes through again\n");
 	/* (the hint line's option is gone: it shows on the game's main menu only - tested in the Superbounce suite) */
 
-	/* 7. Back + Up toggles it closed too; "Close menu" + A closes */
+	/* 7. Back + Up toggles it closed too; 6h.22: no "Close menu" item - B closes at the top, as the footer says */
 	press(0x21, 0, 0); frame(); assert(host_menu_open());
 	release(); frame(); press(0x21, 0, 0); frame(); assert(!host_menu_open());
 	release(); frame(); frame();
 	press(0x21, 0, 0); frame(); release(); frame();
+	{
+		int z, foot = 0;
+		for (z = 0; z < g_frame_lines; z++) { assert(!strstr(g_last[z], "Close menu")); if (strstr(g_last[z], "B or Back+Up: close")) foot = 1; }
+		assert(foot);
+	}
 	while (host_menu_selected() != 11) { press(0x02, 0, 0); frame(); release(); frame(); }
-	press(0, 255, 0); frame(); assert(!host_menu_open());
+	assert(strstr(g_last[12], "> Text scale"));                       /* the last item now */
+	press(0, 0, 255); frame(); assert(!host_menu_open());
 	release(); frame();
-	printf("Back + Up and \"Close menu\" both close it\n");
+	printf("Back + Up and B both close it; no \"Close menu\" item (the footer says B closes)\n");
 	assert(logged("menu opened") >= 3 && logged("menu closed") >= 2);
 	{ void spooky_main_frame(void); for (i = 0; i < 9000; i++) spooky_main_frame(); }
-	assert(logged("Spooky Ghost step 6h.21 running") == 1);             /* at main-loop frame 30 */
+	assert(logged("Spooky Ghost step 6h.29 running") == 1);             /* at main-loop frame 30 */
 	assert(logged("status: main-loop frames") == 24);              /* every 300 frames, at most 24 */
 	assert(logged("controller hook running") == 1 && logged("HUD-text hook running") == 1);
 	printf("log: first runs logged once, menu opens/closes logged, trainer-loaded line at frame 30, status every 300 frames (24 at most)\n");
@@ -189,7 +196,7 @@ int main(int argc, char **argv)
 		int z, ok;
 		press(0x21, 0, 0); frame(); release(); frame();
 		assert(host_menu_open() && host_menu() == 0);
-		while (host_menu_selected() != 2) { press(0x01, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 4) { press(0x01, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame();
 		assert(host_menu() == 1 && strstr(g_last[0], "Launch / Teleport") && strstr(g_last[1], "Launch (Black + Up)"));
 		assert(g_frame_lines == 9);                                          /* title, 7 items, footer */
@@ -197,7 +204,7 @@ int main(int argc, char **argv)
 		assert(ok);
 		press(0, 0, 255); frame(); release(); frame();                       /* B: back to the top, still open */
 		assert(host_menu_open() && host_menu() == 0 && strstr(g_last[0], "Spooky Ghost Menu - by Fortune090"));
-		while (host_menu_selected() != 4) { press(0x02, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 6) { press(0x02, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame();                       /* Superbounce Viewer Settings */
 		assert(host_menu() == 2 && strstr(g_last[1], "Maintain charge state") && strstr(g_last[2], "Force Charged state") && strstr(g_last[3], "Seam info text") && g_frame_lines == 12 && strstr(g_last[7], "Monster/Dreadnought Viewer: off") && strstr(g_last[8], "Monster/Dreadnought Viewer: 35+ only: off") && strstr(g_last[9], "Monster/Dreadnought range (units): Max"));   /* 6h.18 */
 		{
@@ -220,10 +227,10 @@ int main(int argc, char **argv)
 		assert(host_menu() == 0 && host_menu_open());
 		/* 6h: Ghost Viewer Settings - the offset save state's three items on top; Rewind poses, Backstep hold, Max believed
 		 * poses and Offset threshold gone */
-		while (host_menu_selected() != 6) { press(0x02, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 8) { press(0x02, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame();
-		assert(host_menu() == 5 && strstr(g_last[0], "Ghost Viewer Settings") && strstr(g_last[1], "> Save offsets (White + Left)")
-		       && strstr(g_last[2], "Revert offsets (White + Right)") && strstr(g_last[3], "Restore offsets after natural reverts: off")
+		assert(host_menu() == 5 && strstr(g_last[0], "Ghost Viewer Settings") && strstr(g_last[1], "> Save offsets (Black + Left)")
+		       && strstr(g_last[2], "Revert offsets (Black + Right)") && strstr(g_last[3], "Restore offsets after natural reverts: off")
 		       && strstr(g_last[4], "Believed poses: on") && strstr(g_last[5], "Travel regions: on") && strstr(g_last[6], "Object believed poses: on")
 		       && strstr(g_last[7], "Object travel regions: off") && strstr(g_last[8], "Back") && g_frame_lines == 10);
 		{
@@ -238,21 +245,75 @@ int main(int argc, char **argv)
 		assert(!host_menu_open());
 		printf("submenus: A enters Launch / Teleport and Superbounce Viewer Settings; B or Back returns; B at the top closes\n");
 	}
-	/* 6h: White + D-pad Left / Right = Save / Revert offsets - only with the Ghost Viewer on (as Cartographer's shortcut);
-	 * Back + D-pad Left / Right stay Create / Revert Checkpoint */
+	/* 6h: Black + D-pad Left / Right (6h.27: was White) = Save / Revert offsets - only with the Ghost Viewer on (as
+	 * Cartographer's shortcut); Back + D-pad Left / Right stay Create / Revert Checkpoint */
 	{
 		void host_set_ghost(s32 on); const char *host_toast(void); void spooky_main_frame(void); void host_practice(s32 what);
 		release(); frame();
-		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); spooky_main_frame(); release(); frame();      /* viewer off: nothing */
+		press(0x04, 0, 0); g_pad.analog[4] = 255; frame(); spooky_main_frame(); release(); frame();      /* viewer off: nothing */
 		assert(!strstr(host_toast(), "offsets") && !strstr(host_toast(), "Offsets"));
 		host_set_ghost(1);
-		g_pad.analog[5] = 255; frame(); press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); spooky_main_frame(); release(); frame();
+		g_pad.analog[4] = 255; frame(); press(0x04, 0, 0); g_pad.analog[4] = 255; frame(); spooky_main_frame(); release(); frame();
 		assert(strstr(host_toast(), "Offsets: no game in progress"));                  /* the save asked for (no game here) */
 		host_practice(1);                                                                /* (any other toast in between) */
-		press(0x08, 0, 0); g_pad.analog[5] = 255; frame(); spooky_main_frame(); release(); frame();
-		assert(strstr(host_toast(), "Offsets: no game in progress"));                  /* White + Right: the revert */
+		press(0x08, 0, 0); g_pad.analog[4] = 255; frame(); spooky_main_frame(); release(); frame();
+		assert(strstr(host_toast(), "Offsets: no game in progress"));                  /* Black + Right: the revert */
 		host_set_ghost(0);
-		printf("White + D-pad Left / Right: save / revert offsets, with the Ghost Viewer on only\n");
+		printf("Black + D-pad Left / Right: save / revert offsets, with the Ghost Viewer on only\n");
+	}
+	/* 6h.27: White + D-pad Left / Right (menu closed) - Game Speed down / up 0.1, held: again after 12 reads then every 3,
+	 * stopping at 0.0 and 5.0; White + D-pad Down - Pause Game on / off (once a press); each said on screen. With the Ghost
+	 * Viewer on, White + Left / Right is still Game Speed. The free camera's D-pad speed isn't touched by White / Black */
+	{
+		void host_set_speed(s32 tenths, s32 pause); s32 host_speed_get(void); s32 host_pause_get(void); s32 host_req_get(void);
+		void host_set_ghost(s32 on); const char *host_toast(void); void host_set_free_cam(s32 on, s32 block); s32 host_fc_steps(void);
+		void host_req(s32 r);
+		int z, st;
+		release(); frame();
+		host_set_speed(10, 0);
+		press(0x08, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_speed_get() == 11 && !strcmp(host_toast(), "Game Speed: 1.1"));
+		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_speed_get() == 9 && !strcmp(host_toast(), "Game Speed: 0.9"));
+		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); assert(host_speed_get() == 8);          /* held */
+		for (z = 0; z < 11; z++) frame();
+		assert(host_speed_get() == 8);
+		frame(); assert(host_speed_get() == 7);
+		frame(); frame(); assert(host_speed_get() == 7); frame(); assert(host_speed_get() == 6);
+		for (z = 0; z < 60; z++) frame();
+		assert(host_speed_get() == 0 && !strcmp(host_toast(), "Game Speed: 0.0"));               /* stops at 0.0 */
+		release(); frame();
+		press(0x08, 0, 0); g_pad.analog[5] = 255; for (z = 0; z < 300; z++) frame(); release(); frame();
+		assert(host_speed_get() == 50 && !strcmp(host_toast(), "Game Speed: 5.0"));              /* stops at 5.0 */
+		host_set_speed(10, 0);
+		press(0x02, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_pause_get() == 1 && host_speed_get() == 10 && !strcmp(host_toast(), "Pause Game: on"));
+		press(0x02, 0, 0); g_pad.analog[5] = 255; frame(); frame(); frame(); release(); frame();  /* held: once */
+		assert(host_pause_get() == 0 && !strcmp(host_toast(), "Pause Game: off"));
+		press(0x04, 0, 0); frame(); release(); frame(); assert(host_speed_get() == 10);         /* the D-pad alone: nothing */
+		host_set_ghost(1); host_req(0);
+		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_speed_get() == 9 && host_req_get() != 10);                                    /* not the offsets */
+		host_set_ghost(0); host_set_speed(10, 0);
+		/* the menu open: White + Left is just the menu's left */
+		press(0x21, 0, 0); frame(); release(); frame(); assert(host_menu_open());
+		while (host_menu_selected() != 0) { press(0x01, 0, 0); frame(); release(); frame(); }   /* on Cheats */
+		press(0x04, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_speed_get() == 10 && host_menu_open() && host_menu() == 0);                   /* no shortcut with the menu open */
+		press(0, 0, 255); frame(); release(); frame(); assert(!host_menu_open());
+		host_set_speed(10, 0);
+		/* the free camera flying: D-pad Down is its speed; White + Down and Black + Down leave it */
+		host_set_free_cam(1, 1); st = host_fc_steps();
+		press(0x02, 0, 0); frame(); release(); frame(); assert(host_fc_steps() == st - 1);
+		press(0x02, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame();
+		assert(host_fc_steps() == st - 1 && host_pause_get() == 1);                               /* paused, the speed left */
+		press(0x02, 0, 0); g_pad.analog[5] = 255; frame(); release(); frame(); assert(host_pause_get() == 0);
+		press(0x02, 0, 0); g_pad.analog[4] = 255; frame(); release(); frame(); assert(host_fc_steps() == st - 1);   /* Black + Down too */
+		host_req(0);
+		press(0x01, 0, 0); frame(); release(); frame(); assert(host_fc_steps() == st);
+		host_set_free_cam(0, 1);
+		printf("White + D-pad Left / Right: Game Speed -/+ 0.1 (held: repeats, stops at 0.0 and 5.0), White + Down: Pause Game, said on screen; the free camera's speed untouched\n");
 	}
 	/* step 6c: Back + Black toggles the free camera; while it flies the game sees a neutral pad (Start passes); with
 	 * "Disable player movement" off the game gets the pad */
@@ -300,7 +361,7 @@ int main(int argc, char **argv)
 		release(); frame();
 		press(0x20, 0, 0); press(0x21, 0, 0); frame(); release(); frame();                    /* Back + Up: open */
 		assert(host_menu_open() && host_menu() == 0);
-		while (host_menu_selected() != 7) { press(0x02, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 9) { press(0x02, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame(); assert(host_menu() == 3);              /* Camera Settings */
 		press(0x02, 0, 0); frame(); release(); frame();
 		press(0, 255, 0); frame(); release(); frame();                                         /* Third Person Settings */
@@ -311,8 +372,8 @@ int main(int argc, char **argv)
 		press(0, 255, 0); frame(); release(); frame();                                         /* in again; its Back item */
 		while (host_menu_selected() != 4) { press(0x02, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame(); assert(host_menu() == 3);
-		press(0, 0, 255); frame(); release(); frame(); assert(host_menu() == 0 && host_menu_selected() == 7);   /* B: the top */
-		while (host_menu_selected() != 4) { press(0x01, 0, 0); frame(); release(); frame(); }   /* (left where the later tests expect) */
+		press(0, 0, 255); frame(); release(); frame(); assert(host_menu() == 0 && host_menu_selected() == 9);   /* B: the top */
+		while (host_menu_selected() != 6) { press(0x01, 0, 0); frame(); release(); frame(); }   /* (left where the later tests expect) */
 		press(0, 0, 255); frame(); release(); frame(); assert(!host_menu_open());
 		printf("Camera Settings: third person, its settings (a submenu), free camera, disable player movement, lock camera pitch (on), teleport; B / Back go up one level\n");
 	}
@@ -335,7 +396,7 @@ int main(int argc, char **argv)
 		assert(host_menu_count() == 10);  /* 6e: + Skulls (within Cheats); 6h.12: + Checkpoint Settings */
 		press(0x21, 0, 0); frame(); release(); frame();
 		assert(host_menu_open() && host_menu() == 0);
-		while (host_menu_selected() != 8) { press(0x02, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 10) { press(0x02, 0, 0); frame(); release(); frame(); }
 		sel2 = host_sel_of(2); first0 = host_first_of(0);
 		press(0, 255, 0); frame(); release(); frame();                       /* A: into Timers */
 		assert(host_menu() == 6 && strstr(g_last[0], "Timers") && strstr(g_last[1], "Out of bounds timer: off") && strstr(g_last[2], "Sleep timer: off") && strstr(g_last[3], "Back"));
@@ -343,11 +404,11 @@ int main(int argc, char **argv)
 		{
 			press(0x02, 0, 0); frame(); release(); frame();                   /* down, again and again */
 			assert(host_menu() == 6 && host_menu_selected() == (z + 1) % 3);
-			assert(host_sel_of(0) == 8 && host_first_of(0) == first0 && host_sel_of(2) == sel2);   /* nothing else moved */
+			assert(host_sel_of(0) == 10 && host_first_of(0) == first0 && host_sel_of(2) == sel2);   /* nothing else moved */
 		}
 		press(0, 0, 255); frame(); release(); frame();                       /* B: back to the top, still on Timers */
-		assert(host_menu() == 0 && host_menu_selected() == 8 && strstr(g_last[0], "Spooky Ghost Menu - by Fortune090"));
-		while (host_menu_selected() != 4) { press(0x01, 0, 0); frame(); release(); frame(); }   /* left where the next test expects it */
+		assert(host_menu() == 0 && host_menu_selected() == 10 && strstr(g_last[0], "Spooky Ghost Menu - by Fortune090"));
+		while (host_menu_selected() != 6) { press(0x01, 0, 0); frame(); release(); frame(); }   /* left where the next test expects it */
 		press(0, 0, 255); frame(); release(); frame();
 		assert(!host_menu_open());
 		printf("Timers menu: down moves only its own 3 items (7 times), the main menu's selection and scroll untouched\n");
@@ -356,8 +417,8 @@ int main(int argc, char **argv)
 	{
 		int z, sel_seen, above, below;
 		host_set_rows_cap(5);
-		press(0x21, 0, 0); frame(); release(); frame();                       /* reopens where it was left (item 4) */
-		assert(g_frame_lines == 7 && host_menu_selected() == 4 && strstr(g_last[1], "more above") && strstr(g_last[4], "> Superbounce Viewer Settings"));
+		press(0x21, 0, 0); frame(); release(); frame();                       /* reopens where it was left (item 6) */
+		assert(g_frame_lines == 7 && host_menu_selected() == 6 && strstr(g_last[1], "more above") && strstr(g_last[4], "> Superbounce Viewer Settings"));
 		while (host_menu_selected() != 0) { press(0x01, 0, 0); frame(); release(); frame(); }
 		assert(g_frame_lines == 7 && strstr(g_last[5], "more below") && !strstr(g_last[1], "more above"));   /* title, 5 rows, footer */
 		for (z = 0; z < 11; z++)
@@ -371,7 +432,7 @@ int main(int argc, char **argv)
 				if (strstr(g_last[k], "more below")) below = 1;
 			}
 			assert(sel_seen && g_frame_lines == 7);                         /* the selection always on screen */
-			if (host_menu_selected() == 11) assert(above && !below && strstr(g_last[5], "> Close menu"));
+			if (host_menu_selected() == 11) assert(above && !below && strstr(g_last[5], "> Text scale"));
 			if (host_menu_selected() >= 4 && host_menu_selected() <= 7) assert(above && below);
 		}
 		press(0x02, 0, 0); frame(); release(); frame();                       /* wraps to the top */
@@ -388,7 +449,7 @@ int main(int argc, char **argv)
 		assert(host_menu() == 4 && strstr(g_last[0], "Cheats") && strstr(g_last[1], "Invulnerability: off") && strstr(g_last[2], "Infinite Ammo: off") &&
 			strstr(g_last[3], "Bottomless Clip: off") && strstr(g_last[4], "Disable AI: off") && strstr(g_last[5], "Bump Possession: off") &&
 			strstr(g_last[6], "Cycle Possession") && strstr(g_last[7], "Revert to player possession") && strstr(g_last[8], "Invincible Vehicles: off") &&
-			strstr(g_last[9], "HUD Widescreen Fix: on") && strstr(g_last[10], "Skulls  >") && strstr(g_last[11], "Back"));   /* 6h.14: Passion Check moved to the top */
+			strstr(g_last[9], "HUD Widescreen Fix: on") && strstr(g_last[10], "Passion Check") && strstr(g_last[11], "Skulls  >") && strstr(g_last[12], "Back"));   /* 6h.22: Passion Check back, above Skulls */
 		{
 			/* 6h.5: Cycle Possession and Revert to player possession leave the menu open; their message shows under it */
 			void spooky_main_frame(void);
@@ -411,15 +472,15 @@ int main(int argc, char **argv)
 		{
 			/* 6e: Skulls - in the order they're found; Whuppopotamus on sets the game's skull 14; B back to Cheats */
 			int q, ok = 1;
-			static const char *const order[] = { "Cowbell", "Thunderstorm", "Blind", "I Would Have Been Your Daddy", "Catch", "Grunt Birthday Party", "Famine" };
-			while (host_menu_selected() != 9) { press(0x02, 0, 0); frame(); release(); frame(); }
+			static const char *const order[] = { "Cow Bell", "Thunderstorm", "Blind", "I Would Have Been Your Daddy", "Catch", "Grunt Birthday Party", "Famine" };
+			while (host_menu_selected() != 10) { press(0x02, 0, 0); frame(); release(); frame(); }
 			press(0, 255, 0); frame(); release(); frame();
 			assert(host_menu() == 8 && strstr(g_last[0], "Skulls"));
 			for (q = 0; q < 7 && q + 1 < g_frame_lines; q++) if (!strstr(g_last[q + 1], order[q])) ok = 0;
 			assert(ok);
 			{
 				s32 host_skull(s32 i);
-				press(0, 255, 0); frame(); release(); frame();                 /* A on Cowbell (the game's Whuppopotamus): skull 14 */
+				press(0, 255, 0); frame(); release(); frame();                 /* A on Cow Bell (the game's Whuppopotamus): skull 14 */
 				assert(host_skull(14) == 1 && host_skull(3) == 0);
 				press(0, 255, 0); frame(); release(); frame();                 /* off again */
 				assert(host_skull(14) == 0);
@@ -432,11 +493,35 @@ int main(int argc, char **argv)
 		assert(!host_menu_open());
 		printf("cheats: a submenu with Invulnerability, Disable AI, Infinite Ammo and Bottomless Clip\n");
 	}
+	/* 6h.22: Game Speed (tenths, 0.0 to 5.0, from 1.0) and Pause Game (off) under Cheats; right / left step 0.1 with the
+	 * auto-repeat and stop at the ends, A wraps from 5.0 to 0.0; A toggles Pause Game */
+	{
+		int z;
+		press(0x21, 0, 0); frame(); release(); frame();
+		while (host_menu_selected() != 1) { press(0x01, 0, 0); frame(); release(); frame(); }
+		assert(strstr(g_last[2], "> Game Speed: 1.0") && host_value(1) == 10);
+		press(0x08, 0, 0); frame(); release(); frame(); assert(host_value(1) == 11 && strstr(g_last[2], "Game Speed: 1.1"));
+		press(0x04, 0, 0); frame(); release(); frame(); press(0x04, 0, 0); frame(); release(); frame();
+		assert(host_value(1) == 9 && strstr(g_last[2], "Game Speed: 0.9"));
+		press(0x04, 0, 0); for (z = 0; z < 60; z++) frame(); release(); frame();
+		assert(host_value(1) == 0 && strstr(g_last[2], "Game Speed: 0.0"));      /* held: down to 0.0, stops */
+		press(0x08, 0, 0); for (z = 0; z < 200; z++) frame(); release(); frame();
+		assert(host_value(1) == 50 && strstr(g_last[2], "Game Speed: 5.0"));     /* held: up to 5.0, stops */
+		press(0, 255, 0); frame(); release(); frame(); assert(host_value(1) == 0); /* A: wraps to 0.0 */
+		for (z = 0; z < 10; z++) { press(0, 255, 0); frame(); release(); frame(); }
+		assert(host_value(1) == 10 && strstr(g_last[2], "Game Speed: 1.0"));
+		press(0x02, 0, 0); frame(); release(); frame();
+		assert(host_menu_selected() == 2 && strstr(g_last[3], "> Pause Game: off") && host_value(2) == 0);
+		press(0, 255, 0); frame(); release(); frame(); assert(host_value(2) == 1 && strstr(g_last[3], "Pause Game: on") && host_menu_open());
+		press(0, 255, 0); frame(); release(); frame(); assert(host_value(2) == 0 && strstr(g_last[3], "Pause Game: off"));
+		press(0, 0, 255); frame(); release(); frame(); assert(!host_menu_open());
+		printf("Game Speed: 1.0 by default, 0.0 to 5.0 in steps of 0.1 (held: repeats, stops at the ends; A wraps); Pause Game: off, A toggles\n");
+	}
 	/* 6h.12: Checkpoint Settings (from the top, under Cheats): Create / Revert Checkpoint, Disable natural checkpoints and
 	 * Disable reverts (both off); A toggles; B back to the top, still on it */
 	{
 		press(0x21, 0, 0); frame(); release(); frame();
-		while (host_menu_selected() != 1) { press(0x01, 0, 0); frame(); release(); frame(); }
+		while (host_menu_selected() != 3) { press(0x01, 0, 0); frame(); release(); frame(); }
 		press(0, 255, 0); frame(); release(); frame();
 		assert(host_menu() == 9 && strstr(g_last[0], "Checkpoint Settings") && strstr(g_last[1], "Create Checkpoint (Back + Left)")
 		       && strstr(g_last[2], "Revert Checkpoint (Back + Right)") && strstr(g_last[3], "Disable natural checkpoints: off")
@@ -447,7 +532,7 @@ int main(int argc, char **argv)
 		press(0, 255, 0); frame(); release(); frame(); press(0x01, 0, 0); frame(); release(); frame(); press(0, 255, 0); frame(); release(); frame();   /* both off again */
 		assert(strstr(g_last[3], "Disable natural checkpoints: off") && strstr(g_last[4], "Disable reverts: off"));
 		press(0, 0, 255); frame(); release(); frame();
-		assert(host_menu() == 0 && host_menu_selected() == 1);
+		assert(host_menu() == 0 && host_menu_selected() == 3);
 		press(0, 0, 255); frame(); release(); frame(); assert(!host_menu_open());
 		printf("Checkpoint Settings: Create / Revert Checkpoint, Disable natural checkpoints, Disable reverts (off); B back to the top\n");
 	}

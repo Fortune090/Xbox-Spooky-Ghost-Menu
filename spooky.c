@@ -270,11 +270,15 @@ static s32 o_invuln = 0;       /* Cartographer's "Invulnerability": the game's o
 static s32 o_launch_fwd = 10, o_launch_up = 0, o_tp_fwd = 5, o_tp_up = 0;   /* Launch (u/s) / Teleport (units), along your view */
 static volatile s32 g_req;                      /* a practice action asked for: 1 checkpoint, 2 revert, 3 launch, 4 teleport, 5 third person */
 static s32 o_keep_charge = 0;  /* Cartographer's "Maintain charge state on ... reverts" (the revert part) */
+static s32 o_speed = 10;       /* 6h.22: Game Speed, tenths: 0.0 to 5.0 (1.0 the game's own) */
+static s32 o_pause = 0;        /* 6h.22: Pause Game - the game's speed 0 while on; Game Speed kept for when it's off */
 
 /* As Cartographer's "Spooky Ghost Settings": its top-level items, then "Launch / Teleport" and "Superbounce Viewer
  * Settings" as submenus (A enters, B or Back returns) */
 static const s_item m_main[] = {
 	{ "Cheats  >", K_SUB, 0, 4, 0 },
+	{ "Game Speed", K_INT, &o_speed, 0, 50 },              /* 6h.22: tenths - 0.0 to 5.0 */
+	{ "Pause Game", K_TOGGLE, &o_pause, 0, 1 },            /* 6h.22 */
 	{ "Checkpoint Settings  >", K_SUB, 0, 9, 0 },          /* 6h.12: Create / Revert Checkpoint moved in there */
 	{ "Launch / Teleport  >", K_SUB, 0, 1, 0 },
 	{ "Superbounce Viewer", K_TOGGLE, &o_sb_hud, 0, 1 },
@@ -283,9 +287,7 @@ static const s_item m_main[] = {
 	{ "Ghost Viewer Settings  >", K_SUB, 0, 5, 0 },
 	{ "Camera Settings  >", K_SUB, 0, 3, 0 },
 	{ "Timers  >", K_SUB, 0, 6, 0 },
-	{ "Text scale", K_INT, &o_scale, 6, 14 },
-	{ "Passion Check", K_ACTION, 0, 9, 0 },               /* 6h.14: from Cheats; 6h.15: below Text scale */
-	{ "Close menu", K_ACTION, 0, 0, 0 },
+	{ "Text scale", K_INT, &o_scale, 6, 14 },             /* 6h.22: Passion Check back to Cheats; Close menu gone (B closes) */
 };
 static const s_item m_cp[] = {                   /* 6h.12: Checkpoint Settings (from the top, under Cheats) */
 	{ "Create Checkpoint (Back + Left)", K_ACTION, 0, 1, 0 },
@@ -341,11 +343,12 @@ static const s_item m_cheats[] = {
 	{ "Revert to player possession", K_STAY, 0, 8, 0 },
 	{ "Invincible Vehicles", K_TOGGLE, &o_inv_veh, 0, 1 },
 	{ "HUD Widescreen Fix", K_TOGGLE, &o_hud_ws, 0, 1 },
+	{ "Passion Check", K_ACTION, 0, 9, 0 },               /* 6h.22: back in Cheats, above Skulls */
 	{ "Skulls  >", K_SUB, 0, 8, 0 },
 	{ "Back", K_BACK, 0, 0, 0 },
 };
 static const s_item m_skulls[] = {             /* in the order they're found in the campaign */
-	{ "Cowbell", K_TOGGLE, &o_skull[14], 0, 1 },           /* (the game's skull 14: Whuppopotamus) */
+	{ "Cow Bell", K_TOGGLE, &o_skull[14], 0, 1 },           /* (the game's skull 14: Whuppopotamus) */
 	{ "Thunderstorm", K_TOGGLE, &o_skull[3], 0, 1 },
 	{ "Blind", K_TOGGLE, &o_skull[6], 0, 1 },
 	{ "I Would Have Been Your Daddy", K_TOGGLE, &o_skull[5], 0, 1 },
@@ -365,8 +368,8 @@ static const s_item m_skulls[] = {             /* in the order they're found in 
 };
 static const s_item m_ghost[] = {               /* 6h: rewind poses (off), backstep hold (8), max believed poses (6) and the
                                                    offset threshold (0.08) left at those values, out of the menu */
-	{ "Save offsets (White + Left)", K_ACTION, 0, 10, 0 },
-	{ "Revert offsets (White + Right)", K_ACTION, 0, 11, 0 },
+	{ "Save offsets (Black + Left)", K_ACTION, 0, 10, 0 },          /* 6h.27: Black (White is Game Speed's) */
+	{ "Revert offsets (Black + Right)", K_ACTION, 0, 11, 0 },
 	{ "Restore offsets after natural reverts", K_TOGGLE, &o_ofs_natural, 0, 1 },
 	{ "Believed poses", K_TOGGLE, &o_believed, 0, 1 },
 	{ "Travel regions", K_TOGGLE, &o_travel, 0, 1 },
@@ -434,7 +437,7 @@ static float g_fc_p[3], g_fc_yaw, g_fc_pitch;   /* where it is */
 static float g_fc_tp[3], g_fc_tyaw, g_fc_tpitch;   /* where the input puts it (it eases toward that) */
 static u32 g_frames = 0;
 
-typedef struct { void *handle; u16 buttons; u8 a, b; u8 combo; u8 repeat_dir; u16 held; u8 black, white; } s_pad;
+typedef struct { void *handle; u16 buttons; u8 a, b; u8 combo; u8 repeat_dir; u16 held; u8 black, white; u8 sp_dir; u16 sp_held; } s_pad;   /* sp_: White + Left / Right held */
 static s_pad g_pads[4];
 
 static s_pad *pad_for(void *handle)
@@ -483,6 +486,25 @@ static void change(s32 delta, s32 activate)
 	*it->value += delta;
 	if (*it->value > it->hi) *it->value = activate ? it->lo : it->hi;     /* A wraps round, right stops at the top */
 	if (*it->value < it->lo) *it->value = it->lo;
+}
+
+/* 6h.27: White + D-pad Left / Right (menu closed) - Game Speed down / up 0.1, 0.0 to 5.0 (stops at the ends); held:
+ * again after ~0.4 s, then every ~0.1 s (as the menu's left / right). Said on screen - the menu isn't open. */
+static void toast(const char *t);
+static void speed_keys(s_pad *pad, u16 buttons, u16 pressed, s32 on)
+{
+	u8 d = on ? ((buttons & BTN_LEFT) ? 3 : (buttons & BTN_RIGHT) ? 4 : 0) : 0;
+	s32 fire = 0;
+	char t[24] = "Game Speed: ";
+	if (d && (pressed & (BTN_LEFT | BTN_RIGHT))) { fire = 1; pad->sp_held = 0; pad->sp_dir = d; }
+	else if (d && d == pad->sp_dir) { pad->sp_held++; if (pad->sp_held >= 12 && (pad->sp_held - 12) % 3 == 0) fire = 1; }
+	else { pad->sp_held = 0; pad->sp_dir = d; }
+	if (!fire) return;
+	o_speed += d == 3 ? -1 : 1;
+	if (o_speed < 0) o_speed = 0;
+	if (o_speed > 50) o_speed = 50;
+	t[12] = (char)('0' + o_speed / 10); t[13] = '.'; t[14] = (char)('0' + o_speed % 10); t[15] = 0;
+	toast(t);
 }
 
 static void neutral(xinput_state *st)
@@ -540,9 +562,15 @@ u32 spooky_input(void *handle, xinput_state *st)
 		else if ((buttons & BTN_BACK) && (pressed & BTN_DOWN)) r = 5;         /* the third person camera, on / off */
 		else if (black && (pressed & BTN_UP)) r = 3;
 		else if (black && (pressed & BTN_DOWN)) r = 4;
-		else if (white && o_ghost && (pressed & BTN_LEFT)) r = 10;          /* save offsets (6h) */
-		else if (white && o_ghost && (pressed & BTN_RIGHT)) r = 11;         /* revert offsets */
+		else if (black && o_ghost && (pressed & BTN_LEFT)) r = 10;          /* save offsets (6h; 6h.27: Black - was White) */
+		else if (black && o_ghost && (pressed & BTN_RIGHT)) r = 11;         /* revert offsets */
+		else if (white && !(buttons & BTN_BACK) && (pressed & BTN_DOWN))    /* 6h.27: White + Down - Pause Game */
+		{
+			o_pause = !o_pause;
+			toast(o_pause ? "Pause Game: on" : "Pause Game: off");
+		}
 		if (r) g_req = r;
+		speed_keys(pad, buttons, pressed, white && !black && !(buttons & BTN_BACK));   /* 6h.27: White + Left / Right */
 	}
 	u8 combo = (buttons & BTN_BACK) && (buttons & BTN_UP);
 	u8 combo_edge = combo && !pad->combo && !main_menu;
@@ -598,7 +626,8 @@ u32 spooky_input(void *handle, xinput_state *st)
 		g_fc_in[0] = fc_stick(st->lx); g_fc_in[1] = fc_stick(st->ly);       /* the player controls' own dead zone */
 		g_fc_in[2] = fc_stick(st->rx); g_fc_in[3] = fc_stick(st->ry);
 		g_fc_in[4] = fc_trigger(st->analog[7]); g_fc_in[5] = fc_trigger(st->analog[6]);   /* right / left trigger */
-		if (!(buttons & BTN_BACK)) { if (pressed & BTN_UP) g_fc_speed_steps++; if (pressed & BTN_DOWN) g_fc_speed_steps--; }
+		if (!(buttons & BTN_BACK) && st->analog[AB_BLACK] <= ANALOG_DOWN && st->analog[AB_WHITE] <= ANALOG_DOWN)   /* 6h.27: not with Black / White */
+		{ if (pressed & BTN_UP) g_fc_speed_steps++; if (pressed & BTN_DOWN) g_fc_speed_steps--; }
 		neutral(st);
 		st->buttons = start;
 	}
@@ -732,6 +761,58 @@ static void gw8(u32 a, u8 v) { *(volatile u8 *)a = v; }
 #endif
 static void gwf(u32 a, float f) { union { float f; u32 u; } x; x.f = f; gw32(a, x.u); }
 static s32 is_campaign(void) { u32 g = M32(ADDR_GAME_OPTIONS_PTR); return ptr_ok(g) && M32(g + 8) == 1; }
+
+/* ---- 6h.22: Game Speed and Pause Game (as Yelo's and HCM's). The game's time globals (v1.0 0x510c54, v1.5 0x51df54):
+ * +0 initialized, +1 paused, +2 ticks a second, +4 seconds a tick, +8 the game time, +0xC the speed (1.0), +0x10 the
+ * tick fraction left over, +0x14..+0x20 a rate blend (a script's: start, target, how long). Each frame the game runs
+ * ticks a second x speed x the frame's time of ticks (v1.0 0x146660, v1.5 0x149160) - none when the speed is 0 - at most
+ * clamp(speed, 1, 5) x 2 a frame. The input poll (v1.0 0x124950, from 0x12b510 before the time update) runs every frame,
+ * paused or not.
+ * 6h.24: the ticks stay 30 a second, 1/30 s each, at every speed (the user's rule: the physics locked at 30 ticks) -
+ * only the speed changes how many run each second; a tick rate found otherwise (a 6h.23 checkpoint's 60 or 300) is put
+ * back to 30. (6h.23's shorter ticks - the game's own slow motion, its rate setter 0x146980 - kept a tick a frame and
+ * the picture smooth, but changed the physics.) Pause Game: speed 0. In a game only: the game's main menu is its own
+ * scene, and this menu can't open there to turn Pause off. ---- */
+static u32 M16(u32 a);
+static s32 g_speed_set;        /* a rate of ours is in the game's time globals */
+static void rate_put(u32 time, s32 tps, float speed)
+{
+	u32 w = M32(time);
+	if ((s32)(s16)(w >> 16) != tps) { gw32(time, (w & 0xFFFFu) | ((u32)(u16)tps << 16)); gwf(time + 4, 1.f / (float)tps); }
+	if (MF(time + 0xC) != speed) gwf(time + 0xC, speed);
+}
+static void game_speed_frame(void)
+{
+	u32 time = M32(ADDR_GAME_TIME_PTR), opt = M32(ADDR_GAME_OPTIONS_PTR);
+	s32 base, tps;
+	float cur, tgt;
+	if (!ptr_ok(time) || !M8(time)) return;                              /* no game time yet */
+	base = ptr_ok(opt) ? (s32)(s16)M16(opt + 0xE) : 30;
+	if (base <= 0 || base > 300) base = 30;
+	if (!ptr_ok(opt) || M32(opt + 8) == 3)                                /* no game, or the game's main menu */
+	{
+		if (g_speed_set) rate_put(time, base, 1.f);                       /* ours: the game's own rate back */
+		g_speed_set = 0;
+		return;
+	}
+	if (MF(time + 0x18) > 0.f && !o_pause) { g_speed_set = 0; return; }  /* a script's rate blend under way: its own */
+	if (o_pause || o_speed != 10)
+	{
+		rate_put(time, base, o_pause ? 0.f : (float)o_speed / 10.f);       /* 30 ticks a second, always */
+		g_speed_set = 1;
+		return;
+	}
+	/* 1.0, not paused: the game's own rate. One of ours can come back with a revert (the time globals are in the saved
+	 * game state): the normal rate put back - unless it's a rate a script set (its target, +0x20: the ticks match it) */
+	cur = MF(time + 0xC); tps = (s32)(s16)M16(time + 2); tgt = MF(time + 0x20);
+	if (tps != base || cur != 1.f)
+	{
+		s32 script = 0;
+		if (tgt > 0.f && tgt != 1.f) { float want = (float)base / tgt, d = (float)tps - want; script = d > -1.01f && d < 1.01f; }
+		if (!script) rate_put(time, base, 1.f);
+	}
+	g_speed_set = 0;
+}
 static u32 object_from_datum(s32 datum)
 {
 	u32 pool = M32(ADDR_OBJECTS_PTR), data, count, header;
@@ -1080,6 +1161,10 @@ void host_set_fc_lock(s32 on) { o_fc_lock_pitch = on; }
 float host_fc_stick(s32 v) { return fc_stick((s16)v); }
 float host_fc_trigger(s32 v) { return fc_trigger((u8)v); }
 void host_req(s32 r) { g_req = r; }
+s32 host_req_get(void) { return g_req; }
+s32 host_speed_get(void) { return o_speed; }
+s32 host_pause_get(void) { return o_pause; }
+s32 host_fc_steps(void) { return g_fc_speed_steps; }
 void host_set_fc_pad(u32 h) { g_fc_pad = (void *)(unsigned long)h; }
 void host_fc_input(float lx, float ly, float rx, float ry, float rt, float lt) { g_fc_in[0] = lx; g_fc_in[1] = ly; g_fc_in[2] = rx; g_fc_in[3] = ry; g_fc_in[4] = rt; g_fc_in[5] = lt; }
 void host_fc_pose(float *p, float *yaw, float *pitch) { s32 i; for (i = 0; i < 3; i++) p[i] = g_fc_p[i]; *yaw = g_fc_yaw; *pitch = g_fc_pitch; }
@@ -1127,17 +1212,80 @@ void cam_target_fix(u32 rec)
 	for (i = 0; i < n; i++) if (M32(seats + i * 0xB0) & 4) { seat = i; break; }
 	gw32(rec + 8, seats + seat * 0xB0 + 0x60);
 }
+/* ---- 6h.25: smooth slow motion at 30 ticks - frame interpolation. Below 1.0 the game runs fewer 1/30 s ticks than
+ * frames, and draws each tick's state as it is (no in-between frames on the Xbox): it stepped. Now each frame is drawn
+ * between the last two ticks, by how far the next one has come (the time globals' leftover_ticks, +0x10): every object
+ * near you has its node matrices (object +0x116 offset, +0x114 size, 0x34 each) snapshotted before each tick (the tick
+ * call in the tick loop, v1.0 0x137f89), blended around the draw (the frame's call to it, v1.0 0x12b659) and put back
+ * after - the game's state the next tick sees is its own, the 30 ticks untouched. The camera: its eye position the
+ * same way, from its record's own tick history (its turning is already a frame's: the player controls run every
+ * frame, v1.0 0x1870a0); the first-person weapon is built from that camera at draw time (0x165f16), so it follows.
+ * One tick behind (as any interpolation); only below 1.0, not paused - at full speed nothing changes. ---- */
+static s32 ip_on(void)
+{
+	u32 opt = M32(ADDR_GAME_OPTIONS_PTR);
+	return o_speed > 0 && o_speed < 10 && !o_pause && ptr_ok(opt) && M32(opt + 8) != 3;
+}
+static float ip_alpha(u32 time)                 /* how far the next tick has come: 0 .. 1 */
+{
+	float a = MF(time + 0x10);
+	return a > 0.f ? (a < 1.f ? a : 1.f) : 0.f;
+}
+/* 6h.26: the camera follows its own unit's blend - the eye moved by exactly what the unit's root node is moved by (its
+ * blended node 0 less its real one), so the first-person legs (the unit's own node matrices, copied as they are) and
+ * the camera agree every frame; per-frame camera changes (pitch, shake) pass through untouched. (6h.25 blended the
+ * record's own history: a record moving within a tick switched it off - the camera jumped between the two, the legs
+ * shook.) Set by the blend (ip_blend), cleared after the draw. */
+static u8 g_ip_frame;                          /* this frame is drawn blended */
+static u8 g_ip_uhas[4];                        /* user u's unit was in the snapshot */
+static float g_ip_uoff[4][3];                  /* its root's blend offset (0 when it wasn't blended) */
+static float g_ip_ufwd[4][2];                  /* its facing, blended (x, y) */
+static u8 g_ip_camok[4];                       /* this frame's first-person camera noted (below) */
+static float g_ip_camp[4][3], g_ip_camf[4][3], g_ip_camu[4][3];
+static u8 g_ip_cam[4];                         /* this frame's view drawn from TP_BUF, blended (not a moved view) */
+static s32 ip_eye_offset(s32 user, u32 cam, float *off)
+{
+	(void)cam;
+	off[0] = off[1] = off[2] = 0.f;
+	if (user < 0 || user > 3 || !g_ip_frame || !g_ip_uhas[user]) return 0;
+	off[0] = g_ip_uoff[user][0]; off[1] = g_ip_uoff[user][1]; off[2] = g_ip_uoff[user][2];
+	return off[0] != 0.f || off[1] != 0.f || off[2] != 0.f;
+}
+/* the game's own view (first person, a scope, a possessed vehicle's): a copy with the eye blended */
+static u32 ip_view(s32 user, u32 cam, s32 ipo, const float *off)
+{
+	u32 b;
+	s32 i;
+	if (g_ip_frame)                                                      /* the first-person camera, for the legs' heading */
+	{
+		for (i = 0; i < 3; i++)
+		{
+			g_ip_camp[user][i] = MF(cam + 4 * (u32)i) + off[i];
+			g_ip_camf[user][i] = MF(cam + 0x20 + 4 * (u32)i); g_ip_camu[user][i] = MF(cam + 0x2C + 4 * (u32)i);
+		}
+		g_ip_camok[user] = 1;
+	}
+	if (!ipo) return cam;
+	b = TP_BUF(user);
+	for (i = 0; i < 0x358; i += 4) gw32(b + (u32)i, M32(cam + (u32)i));
+	for (i = 0; i < 3; i++) gwf(b + 4 * (u32)i, MF(cam + 4 * (u32)i) + off[i]);
+	g_ip_cam[user] = 1;
+	return b;
+}
 u32 tp_camera(u32 cam, s32 user)
 {
 	trace("third person camera");
 	s32 was;
 	u32 obj, b;
-	float eye[3], f[3], r[3], l, d2 = 0.f;
-	s32 i;
+	float eye[3], f[3], r[3], l, d2 = 0.f, off[3];
+	s32 i, ipo;
 	if (user < 0 || user > 3) return cam;
 	was = g_tp_applied[user];
 	g_tp_applied[user] = 0;
+	g_ip_cam[user] = 0;
+	g_ip_camok[user] = 0;
 	if (!ptr_ok(cam)) return cam;
+	ipo = ip_eye_offset(user, cam, off);                                     /* 6h.25: the eye between the last two ticks */
 	if (o_free_cam && user == 0 && g_fc_on)
 	{
 		/* the free camera: your view, from where it's been flown (it took no notice of the zoom: a free view) */
@@ -1153,22 +1301,23 @@ u32 tp_camera(u32 cam, s32 user)
 		g_tp_applied[user] = 1;
 		return b;
 	}
-	if (!o_third_person) return cam;
+	if (!o_third_person) return ip_view(user, cam, ipo, off);
 	obj = user_object(user);
-	if (!obj) return cam;
-	if (lone_vehicle(obj)) return cam;                                       /* a possessed vehicle: the game's own view of it */
+	if (!obj) return ip_view(user, cam, ipo, off);
+	if (lone_vehicle(obj)) return ip_view(user, cam, ipo, off);             /* a possessed vehicle: the game's own view of it */
 	/* zoomed (a scope): first person - the unit's current / desired zoom level (+0x240 / +0x241), -1 when not
 	 * (function_c86e0 resets them so) */
-	if ((s8)M8(obj + 0x240) != -1 || (s8)M8(obj + 0x241) != -1) return cam;
+	if ((s8)M8(obj + 0x240) != -1 || (s8)M8(obj + 0x241) != -1) return ip_view(user, cam, ipo, off);
 	for (i = 0; i < 3; i++)
 	{
 		float d;
 		eye[i] = MF(cam + 4 * (u32)i); f[i] = MF(cam + 0x20 + 4 * (u32)i);
 		d = eye[i] - MF(obj + 0x64 + 4 * (u32)i); d2 += d * d;
 	}
-	if (!(d2 < 2.5f * 2.5f)) return cam;                                     /* not at your eye: left alone */
+	if (!(d2 < 2.5f * 2.5f)) return ip_view(user, cam, ipo, off);           /* not at your eye: as the game has it */
 	l = fsqrt(f[0] * f[0] + f[1] * f[1] + f[2] * f[2]);
-	if (l < 1e-4f) return cam;
+	if (l < 1e-4f) return ip_view(user, cam, ipo, off);
+	for (i = 0; i < 3; i++) eye[i] += off[i];                                /* 6h.25: the eye blended (0 when not) */
 	f[0] /= l; f[1] /= l; f[2] /= l;
 	r[0] = f[1]; r[1] = -f[0]; r[2] = 0.f;                                  /* forward x world up */
 	l = fsqrt(r[0] * r[0] + r[1] * r[1]);
@@ -1247,7 +1396,9 @@ u32 tp_camera(u32 cam, s32 user)
 	return b;
 }
 /* the effect code asks for a weapon's first-person marker: "no" for a weapon held (up its parent chain, +0x14) by a
- * player whose view is in third person, so its muzzle flash / casings / effects come from the weapon in the world */
+ * player whose view is in third person, so its muzzle flash / casings / effects come from the weapon in the world.
+ * 6h.23: also the effect draw pass's call (v1.0 0x31d6a: it ignores the answer and takes the marker when one comes back -
+ * the left-hand weapon's, while dual wielding) - "no" leaves the effect where its update put it: the weapon in the world */
 s32 fpm_answer(u32 object_index)                /* 0: no; 2: ask the game */
 {
 	s32 cur = (s32)object_index, root = -1, guard = 0, u;
@@ -1261,8 +1412,11 @@ s32 fpm_answer(u32 object_index)                /* 0: no; 2: ask the game */
 /* Cartographer's perspective hook: the director's perspective reported as "following" (3) to the render code (your
  * own body drawn), the first-person weapon code (the first-person weapon inactive - its muzzle flash, casings and
  * effects from the gun in the world, as in a vehicle's third person) and the camera effect code (no screen shake,
- * melee or recoil kicks) - for a player whose view is in third person. The HUD, aiming and the rest get the real
- * answer (their calls aren't hooked). */
+ * melee or recoil kicks) - for a player whose view is in third person. 6h.23: and the object attachments' first-person
+ * tests (lens flares, light volumes, particle and effect attachments on a weapon): which instances are drawn (v1.0
+ * 0x17430c), which are made (0x178f06, 0x179071) and their markers' model (0x179942) - in a moved view the
+ * first-person ones were drawn on screen (the left-hand weapon's) or the weapon's had none (the right). The HUD, aiming
+ * and the rest get the real answer (their calls aren't hooked). */
 s32 persp_answer(s32 user)                       /* 3: following; -1: the game's own answer */
 {
 	return (o_third_person || o_free_cam) && user >= 0 && user < 4 && g_tp_applied[user] ? 3 : -1;   /* third person or the free camera */
@@ -1277,7 +1431,7 @@ static void view_camera(float *p, float *f, float *u);
 static void view_camera_fc(float *p, float *f) { view_camera(p, f, 0); }
 static void view_camera(float *p, float *f, float *u)
 {
-	u32 b = g_tp_applied[0] ? TP_BUF(0) : ADDR_PLAYER_CAMERAS;
+	u32 b = (g_tp_applied[0] || g_ip_cam[0]) ? TP_BUF(0) : ADDR_PLAYER_CAMERAS;
 	s32 i;
 	for (i = 0; i < 3; i++)
 	{
@@ -1286,6 +1440,185 @@ static void view_camera(float *p, float *f, float *u)
 		if (u) u[i] = MF(b + 0x2C + 4 * (u32)i);
 	}
 }
+/* 6h.25: the objects near the view (bounding sphere within IP_RANGE of the camera) - node matrices before the tick */
+#define IP_NODE_CAP 6144
+#define IP_ENT_CAP 1536
+#define IP_RANGE 80.f
+typedef struct { u32 datum, first, count, cur; float fwd[2], org[3]; } s_ip_ent;   /* cur: the matrices' address while blended (0: not); fwd: its facing (+0x70); org: its origin (+0x64) */
+static s_ip_ent *g_ip_ent;
+static u32 *g_ip_prev, *g_ip_back;              /* 13 words a node: before the tick; the real ones while blended */
+static s32 g_ip_n, g_ip_nodes, g_ip_valid, g_ip_blended, g_ip_mem;   /* g_ip_mem: 0 not asked, 1 ok, -1 failed */
+static u32 g_ip_tick;
+static s32 ip_alloc(void)
+{
+	if (g_ip_mem) return g_ip_mem > 0;
+#ifdef HOST
+	{
+		static s_ip_ent e[IP_ENT_CAP];
+		static u32 pv[IP_NODE_CAP * 13], bk[IP_NODE_CAP * 13];
+		g_ip_ent = e; g_ip_prev = pv; g_ip_back = bk;
+	}
+#else
+	{
+		u32 sz = IP_ENT_CAP * (u32)sizeof(s_ip_ent) + 2u * IP_NODE_CAP * 13u * 4u;
+		u8 *m = (u8 *)VirtualAlloc_x(0, sz, 0x3000 /* MEM_COMMIT | MEM_RESERVE */, 4 /* PAGE_READWRITE */);
+		if (!m) { g_ip_mem = -1; lput(0, "smooth slow motion: no memory for it (the picture steps)"); log_write(); return 0; }
+		g_ip_ent = (s_ip_ent *)m; g_ip_prev = (u32 *)(m + IP_ENT_CAP * sizeof(s_ip_ent)); g_ip_back = g_ip_prev + IP_NODE_CAP * 13;
+	}
+#endif
+	g_ip_mem = 1;
+	return 1;
+}
+static void ip_snapshot(void)
+{
+	u32 time = M32(ADDR_GAME_TIME_PTR), pool = M32(ADDR_OBJECTS_PTR), data, count, i;
+	float ref[3];
+	g_ip_valid = 0;
+	if (!ip_on() || !ip_alloc() || !ptr_ok(time) || !ptr_ok(pool)) return;
+	data = M32(pool + 0x44); count = M32(pool + 0x20);
+	if (!ptr_ok(data) || M32(pool + 0x24) != 12 || count > 8192) return;
+	view_camera(ref, 0, 0);
+	g_ip_n = 0; g_ip_nodes = 0;
+	for (i = 0; i < count && g_ip_n < IP_ENT_CAP; i++)
+	{
+		u32 h = data + i * 12, salt = M32(h) & 0xffff, obj, n, noff, src, w, k;
+		float dx, dy, dz, r;
+		if (!salt) continue;                                                  /* a free slot */
+		obj = M32(h + 8);
+		if (!ptr_ok(obj)) continue;
+		n = M16(obj + 0x114); noff = M16(obj + 0x116);
+		if (!n || n % 0x34 || !noff || noff > 0x4000) continue;
+		n /= 0x34;
+		if ((u32)g_ip_nodes + n > IP_NODE_CAP) continue;
+		dx = MF(obj + 0x30) - ref[0]; dy = MF(obj + 0x34) - ref[1]; dz = MF(obj + 0x38) - ref[2]; r = MF(obj + 0x3C) + IP_RANGE;
+		if (!(r > 0.f && dx * dx + dy * dy + dz * dz < r * r)) continue;     /* far: drawn as it is */
+		src = obj + noff; w = (u32)g_ip_nodes * 13u;
+		for (k = 0; k < n * 13u; k++) g_ip_prev[w + k] = M32(src + 4 * k);
+		g_ip_ent[g_ip_n].datum = (salt << 16) | i; g_ip_ent[g_ip_n].first = (u32)g_ip_nodes; g_ip_ent[g_ip_n].count = n; g_ip_ent[g_ip_n].cur = 0;
+		g_ip_ent[g_ip_n].fwd[0] = MF(obj + 0x70); g_ip_ent[g_ip_n].fwd[1] = MF(obj + 0x74);
+		g_ip_ent[g_ip_n].org[0] = MF(obj + 0x64); g_ip_ent[g_ip_n].org[1] = MF(obj + 0x68); g_ip_ent[g_ip_n].org[2] = MF(obj + 0x6C);
+		g_ip_nodes += (s32)n; g_ip_n++;
+	}
+	g_ip_tick = M32(time + 8);
+	g_ip_valid = 1;
+}
+static void ip_blend(void)
+{
+	u32 time = M32(ADDR_GAME_TIME_PTR), i, k, uo[4];
+	float a;
+	s32 u;
+	g_ip_blended = 0;
+	g_ip_frame = 0;
+	for (u = 0; u < 4; u++) { g_ip_uhas[u] = 0; g_ip_uoff[u][0] = g_ip_uoff[u][1] = g_ip_uoff[u][2] = 0.f; }
+	if (!g_ip_valid || !ip_on() || !ptr_ok(time) || M32(time + 8) != g_ip_tick + 1) return;   /* the snapshot is the tick before */
+	a = ip_alpha(time);
+	g_ip_frame = 1;
+	for (u = 0; u < 4; u++) uo[u] = user_object(u);
+	for (i = 0; i < (u32)g_ip_n; i++)
+	{
+		s_ip_ent *e = &g_ip_ent[i];
+		u32 obj = object_from_datum((s32)e->datum), cur, w = e->count * 13u, same = 1, *pv = g_ip_prev + e->first * 13u, *bk = g_ip_back + e->first * 13u;
+		union { u32 u; float f; } x, y;
+		float d0, d1, d2;
+		e->cur = 0;
+		if (!obj || M16(obj + 0x114) != e->count * 0x34) continue;            /* gone, or another object */
+		cur = obj + M16(obj + 0x116);
+		for (u = 0; u < 4; u++) if (uo[u] && uo[u] == obj)                 /* a local player's unit: its blended facing */
+		{
+			g_ip_uhas[u] = 1;
+			g_ip_ufwd[u][0] = e->fwd[0] + (MF(obj + 0x70) - e->fwd[0]) * a; g_ip_ufwd[u][1] = e->fwd[1] + (MF(obj + 0x74) - e->fwd[1]) * a;
+		}
+		x.u = pv[10]; d0 = MF(cur + 0x28) - x.f; x.u = pv[11]; d1 = MF(cur + 0x2C) - x.f; x.u = pv[12]; d2 = MF(cur + 0x30) - x.f;
+		if (!(d0 * d0 + d1 * d1 + d2 * d2 < 16.f)) continue;                 /* a jump of 4 units or more: at once */
+		for (k = 0; k < w; k++) { bk[k] = M32(cur + 4 * k); if (bk[k] != pv[k]) same = 0; }
+		if (same) continue;                                                    /* still: nothing to blend */
+		e->cur = cur; g_ip_blended++;                                          /* (before writing: a fault still puts it back) */
+		for (k = 0; k < w; k++) { x.u = pv[k]; y.u = bk[k]; gwf(cur + 4 * k, x.f + (y.f - x.f) * a); }
+		for (u = 0; u < 4; u++) if (uo[u] == obj)                          /* the camera's offset: its origin's (on foot - the */
+		{                                                                  /* game's eye is from it, not the bobbing pelvis), */
+			if ((s32)M32(obj + 0x14) == -1)                                 /* else its root node's (a seat: world space) */
+				for (k = 0; k < 3; k++) g_ip_uoff[u][k] = (e->org[k] - MF(obj + 0x64 + 4 * k)) * (1.f - a);
+			else
+				for (k = 0; k < 3; k++) { x.u = pv[10 + k]; y.u = bk[10 + k]; g_ip_uoff[u][k] = (x.f - y.f) * (1.f - a); }
+			{ float d = g_ip_uoff[u][0] * g_ip_uoff[u][0] + g_ip_uoff[u][1] * g_ip_uoff[u][1] + g_ip_uoff[u][2] * g_ip_uoff[u][2];
+			  if (!(d < 16.f)) g_ip_uoff[u][0] = g_ip_uoff[u][1] = g_ip_uoff[u][2] = 0.f; }   /* a jump: none */
+		}
+	}
+}
+static void ip_restore(void)
+{
+	u32 i, k;
+	g_ip_frame = 0;
+	if (!g_ip_blended) return;
+	for (i = 0; i < (u32)g_ip_n; i++)
+	{
+		s_ip_ent *e = &g_ip_ent[i];
+		u32 *bk = g_ip_back + e->first * 13u;
+		if (!e->cur) continue;
+		for (k = 0; k < e->count * 13u; k++) gw32(e->cur + 4 * k, bk[k]);
+		e->cur = 0;
+	}
+	g_ip_blended = 0;
+}
+/* 6h.26: the first-person legs - the game copies the unit's node matrices, as they are, into the first-person body
+ * (0x165f16: no base, world space). Your turning is a frame's (real time, 0x185be0: rate x the frame's seconds), your
+ * body's facing a tick's: slowed, the legs trailed the view. For the first-person build only (the setup's call,
+ * v1.0 0x2badc), on foot, the unit's (blended) nodes are turned about the camera's upright line to its heading, then
+ * put back: the legs under you, facing where you look - as at full speed, where the body takes the view's facing each
+ * tick. The heading from forward and up together (straight down, forward has none: up points along it). */
+#define IP_FP_CAP 160
+static u32 g_ip_fpbk[IP_FP_CAP * 13], g_ip_fp_at, g_ip_fp_n;
+static void ip_fp_turn(void)
+{
+	s32 u = (s32)M32(ADDR_VIEW_USER);
+	u32 obj, n, noff, m, k;
+	float hx, hy, bx, by, l, cs, sn, px, py, fz, c;
+	g_ip_fp_n = 0;
+	if (u < 0 || u > 3 || !g_ip_frame || !g_ip_camok[u] || g_tp_applied[u] || !ip_on()) return;
+	obj = user_object(u);
+	if (!obj || (s32)M32(obj + 0x14) != -1) return;                         /* on foot */
+	n = M16(obj + 0x114); noff = M16(obj + 0x116);
+	if (!n || n % 0x34 || !noff || noff > 0x4000 || n / 0x34 > IP_FP_CAP) return;
+	n /= 0x34;
+	fz = g_ip_camf[u][2]; c = fsqrt(g_ip_camf[u][0] * g_ip_camf[u][0] + g_ip_camf[u][1] * g_ip_camf[u][1]);
+	hx = g_ip_camf[u][0] * c - g_ip_camu[u][0] * fz; hy = g_ip_camf[u][1] * c - g_ip_camu[u][1] * fz;
+	l = fsqrt(hx * hx + hy * hy); if (l < 1e-3f) return; hx /= l; hy /= l;
+	if (g_ip_uhas[u]) { bx = g_ip_ufwd[u][0]; by = g_ip_ufwd[u][1]; } else { bx = MF(obj + 0x70); by = MF(obj + 0x74); }
+	l = fsqrt(bx * bx + by * by); if (l < 1e-3f) return; bx /= l; by /= l;
+	cs = bx * hx + by * hy; sn = bx * hy - by * hx;                        /* the turn from the body's facing to the view's */
+	if (cs > 0.99999f && sn < 1e-5f && sn > -1e-5f) return;
+	px = g_ip_camp[u][0]; py = g_ip_camp[u][1];
+	m = obj + noff;
+	for (k = 0; k < n * 13u; k++) g_ip_fpbk[k] = M32(m + 4 * k);
+	g_ip_fp_at = m; g_ip_fp_n = n;                                         /* (before writing: a fault still puts it back) */
+	for (k = 0; k < n; k++)
+	{
+		u32 nd = m + k * 0x34, v;
+		float x = MF(nd + 0x28) - px, y = MF(nd + 0x2C) - py;
+		gwf(nd + 0x28, px + x * cs - y * sn); gwf(nd + 0x2C, py + x * sn + y * cs);
+		for (v = 0x04; v <= 0x1C; v += 0x0C)                                /* forward, left, up: turned about the upright */
+		{
+			float vx = MF(nd + v), vy = MF(nd + v + 4);
+			gwf(nd + v, vx * cs - vy * sn); gwf(nd + v + 4, vx * sn + vy * cs);
+		}
+	}
+}
+static void ip_fp_back(void)
+{
+	u32 k;
+	if (!g_ip_fp_n) return;
+	for (k = 0; k < g_ip_fp_n * 13u; k++) gw32(g_ip_fp_at + 4 * k, g_ip_fpbk[k]);
+	g_ip_fp_n = 0;
+}
+void ip_fp_before(void) { guarded_call(ip_fp_turn); }
+void ip_fp_after(void) { guarded_call(ip_fp_back); }
+void ip_tick_before(void) { if (guarded_call(ip_snapshot)) g_ip_valid = 0; }      /* the hooks (hooks.S): a bad read caught */
+void ip_draw_before(void) { if (guarded_call(ip_blend)) { } }
+void ip_draw_after(void) { guarded_call(ip_restore); }
+#ifdef HOST
+s32 host_ip_blended(void) { return g_ip_blended; }
+s32 host_ip_snapped(void) { return g_ip_valid ? g_ip_n : -1; }
+#endif
 /* Infinite Ammo includes grenades: a player's two grenade counts (+0x23E) held at 4 (the most a player carries) */
 static void apply_grenades(void)
 {
@@ -1305,6 +1638,7 @@ void host_apply_grenades(void) { apply_grenades(); }
 void host_set_third_person(s32 on, s32 dist, s32 height, s32 side) { o_third_person = on; o_tp_dist = dist; o_tp_height = height; o_tp_side = side; }
 void host_set_tp_nocoll(s32 on) { o_tp_nocoll = on; }
 void host_set_diag(s32 on) { o_diag = on; }
+void host_set_speed(s32 tenths, s32 pause) { o_speed = tenths; o_pause = pause; }
 u32 host_tp_camera(u32 cam, s32 user) { return tp_camera(cam, user); }
 void host_tp_fp_after(void) { tp_fp_after(); }
 #endif
@@ -6922,7 +7256,7 @@ static void oob_update(void)
 	unit = M32(player + 0x2C);
 	if (unit == 0xFFFFFFFFu || !unit) return;
 	tps = (s32)(s16)M16(time + 2);
-	if (tps <= 0 || tps > 240) tps = 30;
+	if (tps <= 0 || tps > 3000) tps = 30;                                 /* 6h.23: slow motion runs up to 300 (a script's 0.01: 3000) */
 	L = tps / 2; if ((tps & 1) && (L & 1)) L++;                         /* round(tps x 0.5): a half rounds to even (the FPU) */
 	c = (s32)M8(player + 0x3E);
 	g_oob_total = L + 1;                                                  /* killed when the counter passes L */
@@ -7827,7 +8161,7 @@ void spooky_frame(void)
 			else if (it->kind == K_INT || it->kind == K_INT10)
 			{
 				at = put(at, ": ");
-				if (it->value == &o_scale) { at = put_int(at, *it->value / 10); at = put(at, "."); at = put_int(at, *it->value % 10); }
+				if (it->value == &o_scale || it->value == &o_speed) { at = put_int(at, *it->value / 10); at = put(at, "."); at = put_int(at, *it->value % 10); }
 				else if (it->kind == K_INT10 && *it->value == 0) at = put(at, "Max");       /* 6h.18: the range's Max */
 				else at = put_int(at, *it->value);
 			}
@@ -8098,13 +8432,18 @@ static void apply_inv_veh(void)
 	}
 	if (!g_ivv_said && n) { s32 at = lput(0, "invincible vehicles: "); at = lnum(at, (u32)n); lput(at, " vehicles protected"); log_write(); g_ivv_said = 1; }
 }
-/* ---- Acrophobia: the debug build's cheat_jetpack (halo2_tag_test.exe 0x8b6384), once a game tick, on foot. Crouch
- * held: your velocity x -0.2 (80% of it gone a tick: you hover). Crouch + A held: you fly where you look - s = your speed
- * along your view (0 if backwards), a = min(1, s / 16), thrust 9 + 9a - 18a^2 u/s^2 (9 at rest, 10.1 at 4 u/s, 0 at 16);
- * the velocity off your view loses 20% a tick. Either way gravity is cancelled (its pull for the tick added back). The
- * velocity is set on the object and its Havok bodies, as Launch does. ---- */
+/* ---- Acrophobia: the debug build's cheat_jetpack (halo2_tag_test.exe 0x8b6384), once a game tick, on foot.
+ * 6h.29: A on the ground is the game's own jump, as ever (held through it: nothing more). A pressed while you're in the
+ * air (the biped's airborne bit, +0x348), then held: you fly where you look - s = your speed along your view (0 if
+ * backwards), a = min(1, s / 16), thrust 9 + 9a - 18a^2 u/s^2 (9 at rest, 10.1 at 4 u/s, 0 at 16); the velocity off your
+ * view loses 20% a tick. Let go of A, or land, and the flight ends. Crouch held in the air (not flying): you hover - your
+ * velocity x -0.2 (80% of it gone a tick). Flying or hovering, gravity is cancelled (its pull for the tick added back).
+ * (6e flew only with crouch held; 6h.28 dropped the hover and flew off a held jump.) Not while this menu has the pad
+ * (A selects there), nor while the free camera holds your player still. The velocity is set on the object and its Havok
+ * bodies, as Launch does. ---- */
 static u32 p1_handle(void) { return M32(ADDR_PAD_HANDLES); }
 static u32 g_acro_tick;
+static u8 g_acro_a_was, g_acro_fly;            /* 6h.29: A as last tick (a press is a change), flying */
 static void acro_tick(void)
 {
 	u32 time = M32(ADDR_GAME_TIME_PTR), obj, tick, ents[16];
@@ -8114,13 +8453,21 @@ static void acro_tick(void)
 	tick = M32(time + 8);
 	if (tick == g_acro_tick) return;                                      /* once a tick */
 	g_acro_tick = tick;
-	obj = player_object();
-	if (!obj || (s32)M32(obj + 0x14) != -1) return;                       /* on foot */
-	if (!(g_p1_buttons & BTN_LS)) return;                                /* crouch (the left stick, clicked) */
-	tps = (s32)(s16)M16(time + 2); if (tps <= 0 || tps > 240) tps = 30;
+	{
+		u8 a_now = g_p1_a > ANALOG_DOWN, press = a_now && !g_acro_a_was, air;
+		g_acro_a_was = a_now;
+		obj = player_object();
+		if (!obj || (s32)M32(obj + 0x14) != -1 || g_open || g_suppress || (o_free_cam && o_fc_block))
+		{ g_acro_fly = 0; return; }                                       /* on foot only; A is this menu's; the free camera holds you */
+		air = M8(obj + 0x348) & 1;
+		if (!air || !a_now) g_acro_fly = 0;                               /* landed, or let go */
+		else if (press) g_acro_fly = 1;                                   /* A pressed in the air (the jump's own press was on the ground) */
+		if (!g_acro_fly && !(air && (g_p1_buttons & BTN_LS))) return;    /* neither flying nor hovering (crouch in the air) */
+	}
+	tps = (s32)(s16)M16(time + 2); if (tps <= 0 || tps > 3000) tps = 30;
 	dt = 1.f / (float)tps;
 	for (i = 0; i < 3; i++) v[i] = MF(obj + 0x88 + 4 * (u32)i);
-	if (g_p1_a > ANALOG_DOWN)
+	if (g_acro_fly)
 	{
 		for (i = 0; i < 3; i++) d[i] = MF(ADDR_PLAYER_CAMERAS + 0x20 + 4 * (u32)i);   /* where you look */
 		l = fsqrt(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
@@ -8131,7 +8478,7 @@ static void acro_tick(void)
 		t = a * 9.f - a * a * 18.f + 9.f;
 		for (i = 0; i < 3; i++) v[i] = v[i] - (v[i] - sp * d[i]) * 0.2f + d[i] * t * dt;
 	}
-	else for (i = 0; i < 3; i++) v[i] *= -0.2f;
+	else for (i = 0; i < 3; i++) v[i] *= -0.2f;                          /* hovering */
 	v[2] += 4.1712f * dt;                                                 /* gravity cancelled */
 	for (i = 0; i < 3; i++) gwf(obj + 0x88 + 4 * (u32)i, v[i]);
 	n = object_bodies(obj, ents);
@@ -8252,7 +8599,7 @@ static void bump_tick(void)
 		toast("Bump Possession: you took control");
 	}
 	g_bp_left = (u32)udatum;
-	{ s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = tick + (u32)(tps > 0 && tps <= 240 ? tps : 30); }
+	{ s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = tick + (u32)(tps > 0 && tps <= 3000 ? tps : 30); }
 }
 #ifdef HOST
 void host_set_bump(s32 on) { o_bump = on; }
@@ -8304,7 +8651,7 @@ static void revert_to_player(void)
 	g_bp_player = (u32)pdatum; g_bp_unit = g_bp_home;
 	if (possess_call()) { lput(0, "revert to player: a bad read was caught (guarded)"); log_write(); return; }
 	g_bp_home = 0xFFFFFFFFu; g_bp_inposs = 0;
-	if (ptr_ok(time)) { s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = M32(time + 8) + (u32)(tps > 0 && tps <= 240 ? tps : 30); }
+	if (ptr_ok(time)) { s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = M32(time + 8) + (u32)(tps > 0 && tps <= 3000 ? tps : 30); }
 	toast("Back in your own body");
 }
 
@@ -8368,7 +8715,7 @@ static void cycle_possession(void)
 	if (possess_call()) { lput(0, "cycle possession: a bad read was caught (guarded)"); log_write(); return; }
 	g_bp_inposs = 1;
 	g_bp_left = (u32)udatum;
-	if (ptr_ok(time)) { s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = M32(time + 8) + (u32)(tps > 0 && tps <= 240 ? tps : 30); }
+	if (ptr_ok(time)) { s32 tps = (s32)(s16)M16(time + 2); g_bp_rest = M32(time + 8) + (u32)(tps > 0 && tps <= 3000 ? tps : 30); }
 	{
 		s32 at = 0, m;
 		const char *a = "Cycle Possession: ", *b = M8(data + g_cyc_k * 12 + 3) ? "vehicle " : "biped ", *c = " of ";
@@ -8448,6 +8795,7 @@ void host_apply_hud_fix(void) { apply_hud_fix(); }
 void spooky_main_frame(void)
 {
 	g_count_main++;
+	game_speed_frame();                                                   /* 6h.22: Game Speed / Pause Game, before the game's time update */
 	trace_frame();
 	fc_frame();                                                           /* the free camera: flown once a frame */
 	trace("main start");
@@ -8467,7 +8815,7 @@ void spooky_main_frame(void)
 	trace("main end");
 	if (g_count_main == 30)            /* about a second in: the game has mapped T: by now */
 	{
-		s32 at = lput(0, "Spooky Ghost step 6h.21 running in Halo 2 " H2_VERSION_TEXT " (modified default.xbe); per-frame hook OK; log on ");
+		s32 at = lput(0, "Spooky Ghost step 6h.29 running in Halo 2 " H2_VERSION_TEXT " (modified default.xbe); per-frame hook OK; log on ");
 		lput(at, g_log_drive == 1 ? "U: (E:\\UDATA\\4D530064)" : g_log_drive == 2 ? "Z: (cache drive)" : "T: (E:\\TDATA\\4D530064)");
 		log_write();
 	}
