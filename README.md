@@ -1,4 +1,4 @@
-## **Spooky Ghost Menu v2.0 - Now ported to Xbox and Xbox 360!**
+## **Spooky Ghost Menu v2.0 - Now supports 128MB!**
 
 Many HCM cheats, features, and options ported to Xbox/360, including the Ghost Viewer and my Superbounce Viewer, all with just a modified xbe. 128MB features now enabled via a modified Xbox 360 emulator as well.
 
