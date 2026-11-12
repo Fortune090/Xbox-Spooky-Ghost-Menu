@@ -5,10 +5,16 @@ site and patched byte is checked against the original first, the mod's section i
 and every touched section's digest recomputed. The app holds only the mod (its section, zero runs left out) and the patch
 lists - none of the game's code.
 
-    python3 make_patcher_app.py <build tag> <output .html>        (after ./build.sh)
+    python3 make_patcher_app.py <build tag> <output .html> <release xefu1_1.xex> <original xefu1_1.xex> [<another original> ...]
+                                                                  (after ./build.sh)
+v2.0: the page also makes the Xbox 360 emulator's xefu1_1.xex (the "360" tick box in Step 1). It is given the release
+build and every original it is to accept; it holds only the bytes of the program the release changes and the header
+fields that follow, and its result is checked against the release's SHA-1 before it is handed over. The emulator's part
+of the page's code is patcher_emu_core.js, beside this script. Needs xex.py (the emulator tools) to read the files.
 """
-import base64, json, sys
+import base64, hashlib, json, os, struct, sys
 import patch_xbe
+HERE = os.path.dirname(os.path.abspath(__file__))
 
 MIN_RUN = 64        # zero runs at least this long are left out of the embedded section
 
@@ -40,18 +46,69 @@ def version_data(version, tag):
     syms = {p[2]: int(p[0], 16) for p in (l.split() for l in open(d + '/spooky.map')) if len(p) == 3}
     assert syms['__section_start'] == cfg['va'] and syms['__section_end'] - cfg['va'] == len(code), version
     for _, _, hook in cfg['calls']: assert hook in syms, hook
-    out = dict(timestamp=cfg['timestamp'], va=cfg['va'], size=len(code), title=cfg['title'] or '',
+    # v2.0: the zero-initialised variables are not written to the file (patch_xbe.py, 6i.150): the section's file size stops
+    # at __bss_start and the console zero-fills up to its size in memory. The app holds, and appends, the file part only.
+    raw = syms.get('__bss_start', cfg['va'] + len(code)) - cfg['va']
+    assert 0 < raw <= len(code) and not any(code[raw:]), version
+    assert cfg.get('x360'), version                      # v2.0: the 128 MB changes are in every build, v1.5 included
+    out = dict(timestamp=cfg['timestamp'], va=cfg['va'], size=len(code), raw=raw, title=cfg['title'] or '',
                calls=[[s, t, syms[h]] for s, t, h in cfg['calls']],
-               bytes=[[s, w, n] for s, w, n in cfg.get('bytes', ())],
+               # 6i.50: triple buffering in every build; v2.0: and the 128 MB changes (patch_xbe.py --x360) - one XBE for
+               # the Xbox and the 360's emulator
+               bytes=[[s, w, n] for s, w, n in tuple(cfg.get('bytes', ())) + tuple(cfg.get('x360', ())) + tuple(cfg.get('triple', ()))],
+               init_flags=[0x80000005, 0x80000001],     # header 0x124: the stock flags, and with "limit to 64 MB" (bit 2) cleared
                tu_skip=[[s, w, n] for s, w, n in cfg.get('tu_skip', ())],
                symrefs=[[s, w, syms[y]] for s, w, y in cfg.get('symrefs', ())],
-               segs=segments(code))
-    # the segments put back together must be the section exactly
-    back = bytearray(len(code))
+               segs=segments(code[:raw]))
+    # the segments put back together must be the section's file part exactly
+    back = bytearray(raw)
     for o, b in out['segs']:
-        raw = base64.b64decode(b); back[o:o + len(raw)] = raw
-    assert bytes(back) == code
+        part = base64.b64decode(b); back[o:o + len(part)] = part
+    assert bytes(back) == code[:raw]
     return out
+
+
+def emu_data(release, originals):
+    """what the page needs to turn an original xefu1_1.xex into the release one: the release's program where it differs
+    from ANY of the originals, its header where it differs from any of theirs, its block layout and its hashes"""
+    for d in (HERE, os.path.join(HERE, 'emulator_tools'), os.path.join(HERE, '..', 'emulator_tools'), '/home/claude/h5/emulator/tools'):
+        if os.path.exists(os.path.join(d, 'xex.py')): sys.path.insert(0, d); break
+    import xex
+    r = xex.Xex(release); rraw = open(release, 'rb').read(); rimg = bytes(r.image())
+    ffi = r.hdr_data(0x3FF)
+    assert struct.unpack_from('>HH', ffi, 4) == (0, 1), 'the release must be unencrypted, in the basic form'
+    blocks = [list(struct.unpack_from('>II', ffi, 8 + 8 * i)) for i in range((len(ffi) - 8) // 8)]
+    assert sum(a + b for a, b in blocks) == len(rimg) and r.pe_off + sum(a for a, b in blocks) == len(rraw)
+    imgs, hdrs, inputs = [], [], {}
+    for p in originals:
+        s = xex.Xex(p); simg = bytes(s.image()); sraw = open(p, 'rb').read()
+        assert s.pe_off == r.pe_off and len(simg) == len(rimg), p
+        sha = hashlib.sha1(simg).hexdigest()
+        five = [simg[a - 0x82000000] for a in (0x82520BA5, 0x8252DB14, 0x8252DB60, 0x8252DC38, 0x8252DCFE)]
+        inputs[sha] = 'the original' if five == [0x3F] * 5 else 'the original with the 128 MB change' if five == [0x7F] * 5 else 'an original'
+        imgs.append(simg); hdrs.append(sraw[:r.pe_off])
+    def segs(new, olds):
+        out, i, n = [], 0, len(new)
+        while i < n:
+            if any(o[i] != new[i] for o in olds):
+                j = i
+                while j < n and any(o[j] != new[j] for o in olds): j += 1
+                out.append([i, base64.b64encode(new[i:j]).decode()]); i = j
+            else: i += 1
+        return out
+    d = dict(name='R89', inputs=inputs, image_sha1=hashlib.sha1(rimg).hexdigest(), file_sha1=hashlib.sha1(rraw).hexdigest(),
+             size=len(rraw), pe_off=r.pe_off, blocks=blocks, img_segs=segs(rimg, imgs), hdr_segs=segs(rraw[:r.pe_off], hdrs))
+    # every original, patched the way the page does it, must give the release exactly
+    for p in originals:
+        s = xex.Xex(p); img = bytearray(s.image()); raw = open(p, 'rb').read()
+        for o, b in d['img_segs']: part = base64.b64decode(b); img[o:o + len(part)] = part
+        assert bytes(img) == rimg, p
+        out = bytearray(raw[:r.pe_off])
+        for o, b in d['hdr_segs']: part = base64.b64decode(b); out[o:o + len(part)] = part
+        at = 0
+        for ds, zs in blocks: out += img[at:at + ds]; assert not any(img[at + ds:at + ds + zs]); at += ds + zs
+        assert bytes(out) == rraw, p
+    return d
 
 
 CORE = r'''
@@ -66,8 +123,8 @@ function sgB64(s) {
 	if (typeof atob === 'function') { var b = atob(s), a = new Uint8Array(b.length), i; for (i = 0; i < b.length; i++) a[i] = b.charCodeAt(i); return a; }
 	return new Uint8Array(Buffer.from(s, 'base64'));
 }
-function sgSection(cfg) {
-	var code = new Uint8Array(cfg.size), i;
+function sgSection(cfg) {                     /* the section's part in the file (cfg.raw bytes; the rest of its cfg.size is zero-filled by the console) */
+	var code = new Uint8Array(cfg.raw), i;
 	for (i = 0; i < cfg.segs.length; i++) code.set(sgB64(cfg.segs[i][1]), cfg.segs[i][0]);
 	return code;
 }
@@ -154,16 +211,18 @@ function sgPatch(input, version, tuSkip) {
 	});
 	cfg.symrefs.forEach(function (r) {
 		var f = fileOff(r[0]);
-		if (secs[f[0]].name !== '.text' || sgU32(x, f[1]) !== r[1]) throw new Error(wrong + sgHex(r[0]) + ' holds ' + sgHex(sgU32(x, f[1])) + '.)');
+		if ((secs[f[0]].name !== '.text' && secs[f[0]].name !== 'D3D') || sgU32(x, f[1]) !== r[1]) throw new Error(wrong + sgHex(r[0]) + ' holds ' + sgHex(sgU32(x, f[1])) + '.)');
 	});
 	bytesList.forEach(function (b) {
 		var f = fileOff(b[0]), want = sgFromHex(b[1]), nb = sgFromHex(b[2]);
-		if ((secs[f[0]].name !== '.text' && secs[f[0]].name !== 'XONLINE') || want.length !== nb.length) throw new Error(wrong + sgHex(b[0]) + '.)');
+		if ((secs[f[0]].name !== '.text' && secs[f[0]].name !== 'XONLINE' && secs[f[0]].name !== 'D3D') || want.length !== nb.length) throw new Error(wrong + sgHex(b[0]) + '.)');
 		for (k = 0; k < want.length; k++) if (x[f[1] + k] !== want[k]) throw new Error(wrong + sgHex(b[0]) + ' holds other bytes.)');
 	});
+	if (sgU32(x, 0x124) !== cfg.init_flags[0]) throw new Error(wrong + 'its start-up flags are ' + sgHex(sgU32(x, 0x124)) + '.)');
 	/* the output: the original, its end padded to a page, then the section, padded to a page */
 	var rawAddr = (x.length + 0xFFF) & ~0xFFF, total = (rawAddr + code.length + 0xFFF) & ~0xFFF, y = new Uint8Array(total), touched = {};
 	y.set(x); y.set(code, rawAddr);
+	sgPut32(y, 0x124, cfg.init_flags[1]);                                    /* v2.0: the console's memory is not limited to 64 MB (the 360's 128 MB emulator; nothing changes on an Xbox) */
 	cfg.calls.forEach(function (c) { var f = fileOff(c[0]); sgPut32(y, f[1] + 1, (c[2] - (c[0] + 5)) >>> 0); touched[f[0]] = 1; });
 	bytesList.forEach(function (b) { var f = fileOff(b[0]); y.set(sgFromHex(b[2]), f[1]); touched[f[0]] = 1; });
 	cfg.symrefs.forEach(function (r) { var f = fileOff(r[0]); sgPut32(y, f[1], r[2]); touched[f[0]] = 1; });
@@ -230,6 +289,11 @@ h2 { font-size: 17px; margin: 0 0 12px; }
 .pick input { position: absolute; width: 1px; height: 1px; opacity: 0; }
 .pick input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
 .file { color: var(--muted); word-break: break-all; }
+.files { margin: 10px 0 0; display: grid; gap: 2px; }
+.tick { display: inline-flex; align-items: center; gap: 8px; margin: 0 0 12px; cursor: pointer; font-weight: 600; }
+.tick input { width: 17px; height: 17px; accent-color: var(--accent); margin: 0; }
+.tick span { color: var(--muted); font-weight: 400; }
+[hidden] { display: none !important; }
 .detect { margin: 12px 0 0; padding: 10px 12px; border-radius: 8px; background: var(--soft); display: none; }
 .detect.show { display: block; }
 .detect.ok { color: var(--ok); }
@@ -252,22 +316,29 @@ code { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 0.92
 <body>
 <main>
 <h1>Spooky Ghost Patcher</h1>
-<p class="sub">Spooky Ghost Menu by Fortune090 &middot; build @TAG@</p>
+<p class="sub">Spooky Ghost Menu by Fortune090 &middot; @TAG@</p>
 
 <section class="panel">
 <p class="step">Step 1</p>
 <h2>Choose your original Halo 2 <code>default.xbe</code></h2>
+<label class="tick"><input type="checkbox" id="x360"> Xbox 360 <span>&mdash; also make the emulator, <code>xefu1_1.xex</code></span></label>
 <div class="pick">
 <input type="file" id="xbe" accept=".xbe">
 <label for="xbe">Choose default.xbe&hellip;</label>
-<span class="file" id="fname">No file chosen</span>
+<input type="file" id="xex" accept=".xex" hidden>
+<label for="xex" id="xexlabel" hidden>Choose xefu1_1.xex&hellip;</label>
+</div>
+<div class="files">
+<span class="file" id="fname">No default.xbe chosen</span>
+<span class="file" id="fname360" hidden>No xefu1_1.xex chosen</span>
 </div>
 <p class="detect" id="detect" role="status"></p>
+<p class="detect" id="detect360" role="status"></p>
 </section>
 
 <section class="panel">
 <p class="step">Step 2</p>
-<h2>Pick a build &mdash; you'll be asked where to save it</h2>
+<h2 id="step2">Pick a build &mdash; you'll be asked where to save it</h2>
 <div class="builds">
 <div class="build"><div><b>Spooky Ghost &mdash; v1.0</b><span>For the original disc XBE (v1.0).</span></div><button id="b10" disabled>Build v1.0</button></div>
 <div class="build"><div><b>Spooky Ghost &mdash; 1.0 TU Skip</b><span>v1.0 that ignores an installed title update and Xbox Live's update.</span></div><button id="b10tu" disabled>Build 1.0 TU Skip</button></div>
@@ -277,20 +348,22 @@ code { font-family: Consolas, "Cascadia Mono", Menlo, monospace; font-size: 0.92
 </section>
 
 <section class="notes">
-<p>Each build is saved as <code>default.xbe</code> in the folder you choose. If that folder already has a <code>default.xbe</code> &mdash; maybe your original &mdash; you'll be asked before it's replaced, so a new empty folder for each build is easiest.</p>
-<p>Your XBE never leaves your computer: the patching happens in this page. Every place the mod changes is checked against the original first; a modified or unknown XBE is refused.</p>
+<p>Each build opens a Save dialog with the name <code>default.xbe</code> filled in &mdash; choose where it goes (Desktop, Downloads, any folder). A new folder for each build is easiest: if the folder already has a <code>default.xbe</code> &mdash; maybe your original &mdash; Windows asks before replacing it.</p>
+<p>With <b>Xbox 360</b> ticked, a build asks for a folder instead and puts both files in it: <code>default.xbe</code> and the emulator, <code>xefu1_1.xex</code> (@EMUNAME@), which replaces the one in the console's <code>Compatibility</code> folder &mdash; keep a copy of the original. Make a new folder for it: Chrome and Edge won't open Desktop, Documents or Downloads themselves, only folders inside them, and nothing in the folder you pick is replaced without asking.</p>
+<p>Your files never leave your computer: the patching happens in this page. Every place the mod changes is checked against the original first; a modified or unknown file is refused, and the finished emulator is checked against the release build before it is saved.</p>
 <p>The Monster/Dreadnought Viewer also needs the <code>spots</code> folder from the Spooky Ghost package, copied to <code>E:\TDATA\4D530064\spots</code> on the Xbox.</p>
 </section>
 </main>
 
 <script id="core">
 var SG = @DATA@;
+var SGE = @EMU@;
 @CORE@
 </script>
 <script>
 "use strict";
 (function () {
-	var input = null, found = null;
+	var input = null, found = null, emuInput = null, emuFound = null;
 	var el = function (id) { return document.getElementById(id); };
 	var builds = [
 		{ id: 'b10', version: 'v1.0', tuSkip: false, label: 'v1.0' },
@@ -298,12 +371,24 @@ var SG = @DATA@;
 		{ id: 'b15', version: 'v1.5', tuSkip: false, label: 'v1.5 (title update)' }
 	];
 	function say(text, kind) { var s = el('status'); s.textContent = text; s.className = 'status' + (kind ? ' ' + kind : ''); }
-	function refresh() { builds.forEach(function (b) { el(b.id).disabled = !found || found !== b.version; }); }
+	function want360() { return el('x360').checked; }
+	function refresh() {
+		builds.forEach(function (b) { el(b.id).disabled = !found || found !== b.version || (want360() && !emuFound); });
+		el('step2').innerHTML = want360() ? "Pick a build &mdash; you'll be asked for a folder; both files go in it" : "Pick a build &mdash; you'll be asked where to save it";
+	}
+	function size(f) { return f.name + ' (' + Math.round(f.size / 1024).toLocaleString() + ' KB)'; }
+	el('x360').addEventListener('change', function () {
+		var on = want360();
+		el('xex').hidden = !on; el('xexlabel').hidden = !on; el('fname360').hidden = !on;
+		if (!on) el('detect360').className = 'detect';
+		else if (el('detect360').textContent) el('detect360').className = 'detect show ' + (emuFound ? 'ok' : 'bad');
+		say(''); refresh();
+	});
 	el('xbe').addEventListener('change', function (e) {
 		var f = e.target.files && e.target.files[0], d = el('detect');
 		input = null; found = null; say(''); refresh();
-		if (!f) { el('fname').textContent = 'No file chosen'; d.className = 'detect'; return; }
-		el('fname').textContent = f.name + ' (' + Math.round(f.size / 1024).toLocaleString() + ' KB)';
+		if (!f) { el('fname').textContent = 'No default.xbe chosen'; d.className = 'detect'; return; }
+		el('fname').textContent = size(f);
 		f.arrayBuffer().then(function (buf) {
 			var x = new Uint8Array(buf), r = sgDetect(x);
 			if (r.error) { d.textContent = r.error; d.className = 'detect show bad'; return; }
@@ -313,40 +398,93 @@ var SG = @DATA@;
 			refresh();
 		}, function () { d.textContent = "That file couldn't be read."; d.className = 'detect show bad'; });
 	});
+	el('xex').addEventListener('change', function (e) {
+		var f = e.target.files && e.target.files[0], d = el('detect360');
+		emuInput = null; emuFound = null; say(''); refresh();
+		if (!f) { el('fname360').textContent = 'No xefu1_1.xex chosen'; d.textContent = ''; d.className = 'detect'; return; }
+		el('fname360').textContent = size(f);
+		d.textContent = 'Reading xefu1_1.xex...'; d.className = 'detect show';
+		f.arrayBuffer().then(function (buf) {
+			setTimeout(function () {                                     /* (unpacking takes a second or two: let the line above show first) */
+				var x = new Uint8Array(buf), r = sgEmuDetect(x);
+				if (r.error) { d.textContent = r.error; d.className = 'detect show bad'; return; }
+				emuInput = x; emuFound = r;
+				d.textContent = 'xefu1_1.xex: ' + r.name + ' - ready. It will be made into ' + SGE.name + '.';
+				d.className = 'detect show ok';
+				refresh();
+			}, 30);
+		}, function () { d.textContent = "That file couldn't be read."; d.className = 'detect show bad'; });
+	});
 	function download(bytes, name) {
 		var url = URL.createObjectURL(new Blob([bytes], { type: 'application/octet-stream' })), a = document.createElement('a');
 		a.href = url; a.download = name; document.body.appendChild(a); a.click(); a.remove();
 		setTimeout(function () { URL.revokeObjectURL(url); }, 10000);
 	}
+	async function has(dir, name) { try { await dir.getFileHandle(name); return true; } catch (e) { return false; } }
+	async function put(dir, name, bytes) { var fh = await dir.getFileHandle(name, { create: true }), w = await fh.createWritable(); await w.write(bytes); await w.close(); }
+	/* Xbox 360 ticked: one folder, both files */
+	async function buildBoth(b) {
+		var dir = null, out, emu;
+		if (typeof window.showDirectoryPicker === 'function') {
+			try { dir = await window.showDirectoryPicker({ id: 'spooky-ghost-folder', mode: 'readwrite' }); }
+			catch (err) {
+				if (err && err.name === 'AbortError') { say('No folder chosen - nothing saved.'); return; }
+				dir = null;                                                  /* not allowed here: downloads instead */
+			}
+		}
+		if (dir) {
+			var there = [];
+			if (await has(dir, 'default.xbe')) there.push('default.xbe');
+			if (await has(dir, 'xefu1_1.xex')) there.push('xefu1_1.xex');
+			if (there.length && !window.confirm('The folder "' + dir.name + '" already has ' + there.join(' and ') + '.\n\nReplace ' + (there.length > 1 ? 'them' : 'it') + '? If that is your original, choose Cancel and pick another folder.')) { say('Nothing saved - pick the build again and choose another folder.'); return; }
+		}
+		say('Patching ' + b.label + ' and the emulator...');
+		await new Promise(function (r) { setTimeout(r, 30); });
+		try { out = sgPatch(input, b.version, b.tuSkip); emu = sgEmuPatch(emuInput, emuFound); }
+		catch (err) { say(err.message || String(err), 'bad'); return; }
+		if (dir) {
+			try {
+				await put(dir, 'default.xbe', out); await put(dir, 'xefu1_1.xex', emu);
+				say('Saved default.xbe (Spooky Ghost ' + b.label + ') and xefu1_1.xex (' + SGE.name + ') in the folder "' + dir.name + '".', 'ok');
+			} catch (err) { say("Couldn't save there (" + (err.message || err) + ') - try another folder.', 'bad'); }
+		} else {
+			download(out, 'default.xbe'); download(emu, 'xefu1_1.xex');
+			say("This browser can't be given a folder, so default.xbe (Spooky Ghost " + b.label + ') and xefu1_1.xex (' + SGE.name + ') were downloaded - move them where you need them. (Chrome or Edge ask for a folder.)', 'ok');
+		}
+	}
 	builds.forEach(function (b) {
 		el(b.id).addEventListener('click', async function () {
 			if (!input || found !== b.version) return;
-			var dir = null, out;
-			if (typeof window.showDirectoryPicker === 'function') {
-				try { dir = await window.showDirectoryPicker({ id: 'spooky-ghost-output', mode: 'readwrite' }); }
-				catch (err) {
-					if (err && err.name === 'AbortError') { say('No folder chosen - nothing saved.'); return; }
-					dir = null;                                              /* not allowed here: a download instead */
+			if (want360()) { if (emuFound) await buildBoth(b); return; }
+			var fh = null, out;
+			/* the Save dialog (Chrome / Edge): where to put default.xbe. Not the folder picker - Chrome won't hand a page
+			   a whole well-known folder (Desktop, Documents, Downloads, your user folder, a drive's root: "contains
+			   system files"), but it saves a file into any of them; and Windows asks before replacing a file there */
+			if (typeof window.showSaveFilePicker === 'function') {
+				try {
+					fh = await window.showSaveFilePicker({ id: 'spooky-ghost-output', suggestedName: 'default.xbe',
+						types: [{ description: 'Xbox executable (default.xbe)', accept: { 'application/octet-stream': ['.xbe'] } }] });
+				} catch (err) {
+					if (err && err.name === 'AbortError') { say('No location chosen - nothing saved.'); return; }
+					fh = null;                                               /* not allowed here: a download instead */
 				}
 			}
 			say('Patching ' + b.label + '...');
 			try { out = sgPatch(input, b.version, b.tuSkip); }
 			catch (err) { say(err.message || String(err), 'bad'); return; }
-			if (dir) {
+			if (fh) {
 				try {
-					var exists = false;
-					try { await dir.getFileHandle('default.xbe'); exists = true; } catch (e) { exists = false; }
-					if (exists && !window.confirm('The folder "' + dir.name + '" already has a default.xbe - it may be your original.\n\nReplace it with Spooky Ghost ' + b.label + '?')) { say('Not saved - the folder\'s default.xbe was left as it is.'); return; }
-					var fh = await dir.getFileHandle('default.xbe', { create: true }), w = await fh.createWritable();
+					var w = await fh.createWritable();
 					await w.write(out); await w.close();
-					say('Saved Spooky Ghost ' + b.label + ' as default.xbe in "' + dir.name + '".', 'ok');
-				} catch (err) { say("Couldn't save there (" + (err.message || err) + ') - try another folder.', 'bad'); }
+					say('Saved Spooky Ghost ' + b.label + ' as ' + fh.name + '.', 'ok');
+				} catch (err) { say("Couldn't save there (" + (err.message || err) + ') - try another place.', 'bad'); }
 			} else {
 				download(out, 'default.xbe');
-				say("This browser can't choose a folder, so Spooky Ghost " + b.label + " was downloaded as default.xbe - move it where you need it. (Chrome or Edge ask for a folder.)", 'ok');
+				say("This browser has no Save dialog for pages, so Spooky Ghost " + b.label + " was downloaded as default.xbe - move it where you need it. (Chrome or Edge ask where to save.)", 'ok');
 			}
 		});
 	});
+	refresh();
 })();
 </script>
 </body>
@@ -354,13 +492,16 @@ var SG = @DATA@;
 '''
 
 
-def main(tag, out):
+def main(tag, out, release, *originals):
     data = dict(build=tag, versions={'v1.0': version_data('v1.0', tag), 'v1.5': version_data('v1.5', tag)})
-    page = PAGE.replace('@TAG@', tag).replace('@CORE@', CORE).replace('@DATA@', json.dumps(data, separators=(',', ':')))
+    emu = emu_data(release, originals)
+    core = CORE + open(os.path.join(HERE, 'patcher_emu_core.js'), encoding='utf-8').read()
+    page = (PAGE.replace('@TAG@', tag).replace('@CORE@', core).replace('@DATA@', json.dumps(data, separators=(',', ':')))
+            .replace('@EMU@', json.dumps(emu, separators=(',', ':'))).replace('@EMUNAME@', emu['name']))
     open(out, 'w', encoding='utf-8').write(page)
     print('%s: %d bytes' % (out, len(page.encode('utf-8'))))
 
 
 if __name__ == '__main__':
-    if len(sys.argv) != 3: sys.exit(__doc__)
+    if len(sys.argv) < 5: sys.exit(__doc__)
     main(*sys.argv[1:])

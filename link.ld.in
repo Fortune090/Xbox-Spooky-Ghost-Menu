@@ -8,6 +8,7 @@ SECTIONS
 	.text : { *(.text.hooks) *(.text .text.*) }
 	.rodata : { *(.rodata .rodata.*) }
 	.data : { *(.data .data.*) }
+	__bss_start = .;	/* 6i.150: the file holds the section up to here; the loader zero-fills the rest (vsize > rsize, as Halo 2's own .data) */
 	.bss : { *(.bss .bss.*) *(COMMON) }
 	__section_end = .;
 	/DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }

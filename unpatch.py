@@ -2,7 +2,7 @@
 """Undo patch_xbe.py: rebuild the stock Halo 2 XBE from a Spooky Ghost one (every patched byte's original is known)."""
 import hashlib, struct, sys
 sys.path.insert(0, '.')
-from patch_xbe import VERSIONS, BASE, NEW_NAME
+from patch_xbe import VERSIONS, BASE, NEW_NAME, PROBES
 
 def main(version, src, out):
     cfg = VERSIONS[version]
@@ -34,11 +34,26 @@ def main(version, src, out):
         i, off = file_off(site); a, b = bytes.fromhex(want), bytes.fromhex(new)
         assert bytes(x[off:off + len(b)]) == b, hex(site)
         x[off:off + len(a)] = a; touched.add(i)
+    for site, want, new in cfg.get('triple', ()):             # 6i.42: the triple_buffering build's: put back where present
+        i, off = file_off(site); a, b = bytes.fromhex(want), bytes.fromhex(new)
+        if bytes(x[off:off + len(b)]) == b: x[off:off + len(a)] = a; touched.add(i)
+        else: assert bytes(x[off:off + len(a)]) == a, hex(site)
     for site, want, new in cfg.get('tu_skip', ()):            # the "1.0 TU Skip" build's: put back where present
         i, off = file_off(site); a, b = bytes.fromhex(want), bytes.fromhex(new)
         if bytes(x[off:off + len(b)]) == b: x[off:off + len(a)] = a; touched.add(i)
         else: assert bytes(x[off:off + len(a)]) == a, hex(site)
+    for site, want, new in cfg.get('x360', ()):               # v2.0: the 128 MB changes' (--x360): put back where present
+        i, off = file_off(site); a, b = bytes.fromhex(want), bytes.fromhex(new)
+        if bytes(x[off:off + len(b)]) == b: x[off:off + len(a)] = a; touched.add(i)
+        else: assert bytes(x[off:off + len(a)]) == a, hex(site)
+    if struct.unpack_from('<I', x, 0x124)[0] == 0x80000001: struct.pack_into('<I', x, 0x124, 0x80000005)   # ... and the header's limit-to-64 MB flag
     for site, want, sym in cfg.get('symrefs', ()):
+        i, off = file_off(site); struct.pack_into('<I', x, off, want); touched.add(i)
+    for site, want, new in PROBES[version]['bytes']:                 # 6i.6: the Direct3D probes' jumps, where present
+        i, off = file_off(site); a, b = bytes.fromhex(want), bytes.fromhex(new)
+        if bytes(x[off:off + len(b)]) == b: x[off:off + len(a)] = a; touched.add(i)
+        else: assert bytes(x[off:off + len(a)]) == a, hex(site)
+    for site, want, sym in PROBES[version]['symrefs']:
         i, off = file_off(site); struct.pack_into('<I', x, off, want); touched.add(i)
     if cfg['title']:
         c = cert - BASE
@@ -53,7 +68,8 @@ def main(version, src, out):
     struct.pack_into('<I', x, 0x11C, 33)
     struct.pack_into('<I', x, 0x120, BASE + old)
     end_va = max(s['va'] + s['vsize'] for s in secs[:33])
-    struct.pack_into('<I', x, 0x10C, end_va - BASE)
+    # v2.0: the stock image size is not always the last section's end (v1.5's is 8 bytes more): the stock values, by version
+    struct.pack_into('<I', x, 0x10C, {'v1.0': 0x5754C0, 'v1.5': 0x5851C0}.get(version, end_va - BASE))
     end_raw = max(s['raw'] + s['rsize'] for s in secs[:33])
     assert (end_raw + 0xFFF) & ~0xFFF == sp['raw'], (hex(end_raw), hex(sp['raw']))
     del x[end_raw:]
