@@ -1,0 +1,18 @@
+/* the Spooky Ghost section, appended to Halo 2's XBE at the first free page after its last section */
+OUTPUT_FORMAT("elf32-i386")
+ENTRY(main_hook)
+SECTIONS
+{
+	. = @VA@;
+	__section_start = .;
+	.text : { *(.text.hooks) *(.text .text.*) }
+	.rodata : { *(.rodata .rodata.*) }
+	.data : { *(.data .data.*) }
+	__bss_start = .;	/* 6i.150: the file holds the section up to here; the loader zero-fills the rest (vsize > rsize, as Halo 2's own .data) */
+	.bss : { *(.bss .bss.*) *(COMMON) }
+	__section_end = .;
+	/DISCARD/ : { *(.comment) *(.note*) *(.eh_frame*) }
+}
+orig_end_frame = @END@;
+orig_hud_text = @HUD@;
+orig_main_update = @MAIN@;
