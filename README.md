@@ -71,7 +71,8 @@ Download and open the patcher. Select the version you want, select output locati
 **Other Tools**
 
 - Trigger Volume Overlay with names, timer bars and activation highlights.
-- Out of Bounds Timer, Sleep Timer, Campaign Timer.
+- Out of Bounds Timer, Sleep Timer
+- Campaign Timer: starts at player control and displays current splits/total time. Works for ILs and full-game runs.
 - Havok Island Viewer, Show Stored Velocity, Crouch Turbo, Wireframe.
 - Object Spawning: weapons, vehicles, bipeds (with AI, as ally or enemy) and objects from the current level. Ever want to spawn an army of Hunters on your team to follow you and start a charge on Great Journey? Well now you can!
   
