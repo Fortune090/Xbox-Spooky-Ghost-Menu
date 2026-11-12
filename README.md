@@ -7,8 +7,8 @@ Download and open the patcher. Select the version you want, select output locati
 
 ## **NEW IN V2.0 - 128MB FEATURES**
 
-- **Mod now includes 128MB support**, whether it be via an OG Devkit/128MB-modded Xbox, or via Spooky Ghost's Xbox 360 emulator mod. (**NOTE**: Emulator expected/used as base: FATXplorer's "Hacked Version" Emulator Files. Uses the "HUD" version- either 64MB or 128MB will work for the patcher.) Every build has the game’s 64 MB limit flag cleared so it can use the extra memory; on a 64 MB console these options are refused or greyed out.
-- **Larger Caches**: moves the geometry and animation caches into the mod’s own memory and gives the freed space to the texture cache. Measured on the 360: texture cache 18.8 to 26.7 MB, geometry 7 to 16 MB, with less texture pop-in. It is turned on by default when 128 MB is detected.  
+- **Mod now includes 128MB support**, whether it be via an OG Devkit/128MB-modded Xbox, or via Spooky Ghost's Xbox 360 emulator mod. (**NOTE**: Emulator expected/used as base: FATXplorer's "Hacked Version" Emulator Files. Uses the "HUD" version- either 64MB or 128MB will work for the patcher.) Every build has the game’s 64MB limit flag cleared so it can use the extra memory; on a 64MB console these options are refused or greyed out.
+- **Larger Caches**: moves the geometry and animation caches into the mod’s own memory and gives the freed space to the texture cache. Measured on the 360: texture cache 18.8 to 26.7 MB, geometry 7 to 16MB, with less texture pop-in. It is turned on by default when 128MB is detected.  
 - **Render Scale 110–200%**: upscales the in-game render resolution.
 
 
@@ -31,7 +31,7 @@ Download and open the patcher. Select the version you want, select output locati
 - Tick Rate- 25, 30, and 60
 - Performance Mode and its settings (below)
 - Triple Buffering Toggle
-- Larger Caches (128 MB)
+- Larger Caches (128MB)
 
 **Global Settings save**: many of your settings will now save and persist through reboots.
 
@@ -87,7 +87,7 @@ Download and open the patcher. Select the version you want, select output locati
 - Tick Rate- 25, 30, and 60
 - Performance Mode and its settings (below)
 - Triple Buffering Toggle
-- Larger Caches (128 MB)
+- Larger Caches (128MB)
 #
 
   
