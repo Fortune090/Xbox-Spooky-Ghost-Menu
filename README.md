@@ -88,8 +88,18 @@ Download and open the patcher. Select the version you want, select output locati
 - Tick Rate- 25, 30, and 60
 - Performance Mode and its settings (below)
 - Triple Buffering Toggle
-- Larger Caches (128MB)
-#
+- Larger Caches (for 128MB consoles)
+
+**Performance Mode Settings**
+
+- **FPS Counter**
+- **VSync**: 60 or 30fps
+- **Allow Tearing**: Force frames to arrive immediately- for highly variable framerates, this causes tearing.
+- **FPS Limit**: 0/none to 120fps
+- **Render Scale**: 50% to 200%
+- **Adaptive Resolution Scaling**: Uses Render Scales 50-100% in attempts to keep the picture at the set FPS limit or VSync setting.
+- **Anisotropic Filtering**: off/2X fast/2X/or full/4X. Game runs at full, reducing this has a decent FPS boost.
+- Other various Lighting/Shader options
 
   
 **NOTE**: Place the "spots" folder for Monsters/Dreadnoughts in your TDATA's 4d530064 folder for them to work.  
